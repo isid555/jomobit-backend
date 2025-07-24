@@ -68,11 +68,21 @@ class App {
 
     // Import routes
     const authRoutes = require('./routes/auth');
+    const profileRoutes = require('./routes/profiles');
+    const templateRoutes = require('./routes/templates');
+    const posterRoutes = require('./routes/posters');
+    const subscriptionRoutes = require('./routes/subscriptions');
     const webhookRoutes = require('./routes/webhooks');
+    const adminRoutes = require('./routes/admin');
 
     // API routes
     this.app.use('/api/auth', authRoutes);
+    this.app.use('/api/profiles', profileRoutes);
+    this.app.use('/api/templates', templateRoutes);
+    this.app.use('/api/posters', posterRoutes);
+    this.app.use('/api/subscriptions', subscriptionRoutes);
     this.app.use('/api/webhooks', webhookRoutes);
+    this.app.use('/api/admin', adminRoutes);
 
     // Default API endpoint
     this.app.use('/api', (req, res) => {
@@ -80,13 +90,76 @@ class App {
         message: 'Jomobit API is running',
         version: '1.0.0',
         timestamp: new Date().toISOString(),
-        endpoints: [
-          'GET /api/auth/me',
-          'POST /api/auth/login',
-          'GET /api/auth/permissions',
-          'GET /api/auth/admin/users',
-          'POST /api/webhooks/auth0'
-        ]
+        endpoints: {
+          auth: [
+            'GET /api/auth/me',
+            'POST /api/auth/login',
+            'GET /api/auth/permissions',
+            'GET /api/auth/profile',
+            'GET /api/auth/admin/users',
+            'POST /api/auth/admin/users/:userId/suspend',
+            'POST /api/auth/admin/users/:userId/activate',
+            'GET /api/auth/admin/stats'
+          ],
+          profiles: [
+            'POST /api/profiles',
+            'GET /api/profiles',
+            'GET /api/profiles/search',
+            'GET /api/profiles/:profileId',
+            'PUT /api/profiles/:profileId',
+            'POST /api/profiles/:profileId/deactivate',
+            'POST /api/profiles/:profileId/activate',
+            'GET /api/profiles/:profileId/generation-summary'
+          ],
+          templates: [
+            'GET /api/templates',
+            'GET /api/templates/search',
+            'GET /api/templates/filters',
+            'GET /api/templates/featured',
+            'GET /api/templates/popular',
+            'GET /api/templates/recent',
+            'GET /api/templates/:templateId',
+            'POST /api/templates/admin',
+            'GET /api/templates/admin',
+            'GET /api/templates/admin/stats'
+          ],
+          posters: [
+            'POST /api/posters/generate',
+            'GET /api/posters/history',
+            'GET /api/posters/stats',
+            'GET /api/posters/:jobId',
+            'POST /api/posters/:jobId/cancel',
+            'POST /api/posters/:jobId/retry',
+            'GET /api/posters/:jobId/share',
+            'GET /api/posters/:jobId/download'
+          ],
+          subscriptions: [
+            'GET /api/subscriptions/current',
+            'GET /api/subscriptions/history',
+            'POST /api/subscriptions/upgrade',
+            'POST /api/subscriptions/cancel',
+            'GET /api/subscriptions/billing',
+            'GET /api/subscriptions/plans',
+            'GET /api/subscriptions/plans/:planId'
+          ],
+          webhooks: [
+            'POST /api/webhooks/auth0',
+            'POST /api/webhooks/razorpay',
+            'POST /api/webhooks/ai/generation',
+            'POST /api/webhooks/ai/openai',
+            'POST /api/webhooks/ai/ideogram',
+            'POST /api/webhooks/ai/gemini',
+            'POST /api/webhooks/slack'
+          ],
+          admin: [
+            'GET /api/admin/dashboard',
+            'GET /api/admin/health',
+            'GET /api/admin/config',
+            'GET /api/admin/activity',
+            'POST /api/admin/notify',
+            'GET /api/admin/export/:type'
+          ]
+        }
       });
     });
   }
