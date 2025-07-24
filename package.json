@@ -29,6 +29,7 @@
   "devDependencies": {
     "jest": "^30.0.5",
     "mongodb-memory-server": "^10.1.4",
+    "node-fetch": "^3.3.2",
     "nodemon": "^3.1.10",
     "supertest": "^7.1.4",
     "tslib": "^2.8.1"
