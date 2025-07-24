@@ -368,7 +368,7 @@ templateSchema.statics = {
       isPublic: true,
       isFeatured: true
     })
-    .select('name description images aspectRatio type metrics')
+    .select('name description images aspectRatio type metrics isFeatured')
     .sort({ 'metrics.usageCount': -1, createdAt: -1 })
     .limit(limit)
     .exec();
