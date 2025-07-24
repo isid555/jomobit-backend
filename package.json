@@ -18,6 +18,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
+    "express-oauth2-jwt-bearer": "^1.6.1",
     "express-rate-limit": "^8.0.1",
     "helmet": "^8.1.0",
     "mongoose": "^8.16.4",
@@ -27,7 +28,9 @@
   },
   "devDependencies": {
     "jest": "^30.0.5",
+    "mongodb-memory-server": "^10.1.4",
     "nodemon": "^3.1.10",
-    "supertest": "^7.1.4"
+    "supertest": "^7.1.4",
+    "tslib": "^2.8.1"
   }
 }

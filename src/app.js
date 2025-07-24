@@ -66,12 +66,27 @@ class App {
       });
     });
 
-    // API routes will be added here
+    // Import routes
+    const authRoutes = require('./routes/auth');
+    const webhookRoutes = require('./routes/webhooks');
+
+    // API routes
+    this.app.use('/api/auth', authRoutes);
+    this.app.use('/api/webhooks', webhookRoutes);
+
+    // Default API endpoint
     this.app.use('/api', (req, res) => {
       res.status(200).json({
         message: 'Jomobit API is running',
         version: '1.0.0',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        endpoints: [
+          'GET /api/auth/me',
+          'POST /api/auth/login',
+          'GET /api/auth/permissions',
+          'GET /api/auth/admin/users',
+          'POST /api/webhooks/auth0'
+        ]
       });
     });
   }
