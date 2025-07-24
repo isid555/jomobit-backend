@@ -12,7 +12,7 @@ const subscriptionSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  
+
   // Plan reference
   planId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -20,7 +20,7 @@ const subscriptionSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  
+
   // Razorpay subscription ID
   razorpaySubscriptionId: {
     type: String,
@@ -28,7 +28,7 @@ const subscriptionSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
-  
+
   // Subscription status
   status: {
     type: String,
@@ -36,47 +36,47 @@ const subscriptionSchema = new mongoose.Schema({
     default: 'pending',
     index: true
   },
-  
+
   // Billing cycle information
   currentPeriodStart: {
     type: Date,
     required: true,
     index: true
   },
-  
+
   currentPeriodEnd: {
     type: Date,
     required: true,
     index: true
   },
-  
+
   // Cancellation settings
   cancelAtPeriodEnd: {
     type: Boolean,
     default: false,
     index: true
   },
-  
+
   cancelledAt: {
     type: Date,
     index: true
   },
-  
+
   cancellationReason: {
     type: String,
     trim: true
   },
-  
+
   // Trial information
   trialStart: {
     type: Date
   },
-  
+
   trialEnd: {
     type: Date,
     index: true
   },
-  
+
   // Billing information
   billing: {
     currency: {
@@ -100,7 +100,7 @@ const subscriptionSchema = new mongoose.Schema({
       min: 1
     }
   },
-  
+
   // Payment history
   billingHistory: [{
     razorpayPaymentId: {
@@ -141,7 +141,7 @@ const subscriptionSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
-  
+
   // Discount information
   discount: {
     couponCode: {
@@ -162,7 +162,7 @@ const subscriptionSchema = new mongoose.Schema({
       type: Date
     }
   },
-  
+
   // Upgrade/downgrade tracking
   planChanges: [{
     fromPlanId: {
@@ -195,20 +195,20 @@ const subscriptionSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
-  
+
   // Metadata
   metadata: {
     type: mongoose.Schema.Types.Mixed,
     default: {}
   },
-  
+
   // Timestamps
   createdAt: {
     type: Date,
     default: Date.now,
     index: true
   },
-  
+
   updatedAt: {
     type: Date,
     default: Date.now
@@ -216,7 +216,7 @@ const subscriptionSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   toJSON: {
-    transform: function(doc, ret) {
+    transform: function (doc, ret) {
       delete ret.__v;
       // Don't expose sensitive webhook data
       if (ret.billingHistory) {
@@ -237,16 +237,16 @@ subscriptionSchema.index({ razorpaySubscriptionId: 1, status: 1 });
 subscriptionSchema.index({ currentPeriodEnd: 1, cancelAtPeriodEnd: 1 });
 
 // Pre-save middleware
-subscriptionSchema.pre('save', function(next) {
+subscriptionSchema.pre('save', function (next) {
   if (this.isModified() && !this.isNew) {
     this.updatedAt = new Date();
   }
-  
+
   // Set cancellation timestamp
   if (this.isModified('status') && this.status === 'cancelled' && !this.cancelledAt) {
     this.cancelledAt = new Date();
   }
-  
+
   next();
 });
 
@@ -266,7 +266,8 @@ subscriptionSchema.statics = {
       currentPeriodEnd,
       billing,
       trialStart = null,
-      trialEnd = null
+      trialEnd = null,
+      status = null
     } = subscriptionData;
 
     return this.create({
@@ -278,7 +279,7 @@ subscriptionSchema.statics = {
       billing,
       trialStart,
       trialEnd,
-      status: trialEnd ? 'active' : 'pending'
+      status: status || (trialEnd ? 'active' : 'pending')
     });
   },
 
@@ -292,8 +293,8 @@ subscriptionSchema.statics = {
       userId,
       status: 'active'
     })
-    .populate('planId')
-    .exec();
+      .populate('planId')
+      .exec();
   },
 
   /**
@@ -343,9 +344,9 @@ subscriptionSchema.statics = {
       currentPeriodEnd: { $lte: futureDate },
       cancelAtPeriodEnd: false
     })
-    .populate('userId', 'email metadata.name')
-    .populate('planId', 'name')
-    .exec();
+      .populate('userId', 'email metadata.name')
+      .populate('planId', 'name')
+      .exec();
   },
 
   /**
@@ -358,9 +359,9 @@ subscriptionSchema.statics = {
       cancelAtPeriodEnd: true,
       currentPeriodEnd: { $lte: new Date() }
     })
-    .populate('userId', 'email')
-    .populate('planId', 'name')
-    .exec();
+      .populate('userId', 'email')
+      .populate('planId', 'name')
+      .exec();
   },
 
   /**
@@ -375,7 +376,7 @@ subscriptionSchema.statics = {
     } = filters;
 
     const matchStage = {};
-    
+
     if (startDate || endDate) {
       matchStage.createdAt = {};
       if (startDate) matchStage.createdAt.$gte = startDate;
@@ -394,14 +395,14 @@ subscriptionSchema.statics = {
     ];
 
     const statusStats = await this.aggregate(pipeline).exec();
-    
+
     // Get additional metrics
     const totalSubscriptions = await this.countDocuments(matchStage).exec();
-    const activeSubscriptions = await this.countDocuments({ 
-      ...matchStage, 
-      status: 'active' 
+    const activeSubscriptions = await this.countDocuments({
+      ...matchStage,
+      status: 'active'
     }).exec();
-    
+
     const monthlyRevenue = await this.aggregate([
       {
         $match: {
@@ -445,7 +446,7 @@ subscriptionSchema.methods = {
       failureReason: paymentData.failureReason,
       webhookData: paymentData.webhookData
     });
-    
+
     return this.save();
   },
 
@@ -474,11 +475,11 @@ subscriptionSchema.methods = {
     } else {
       this.cancelAtPeriodEnd = true;
     }
-    
+
     if (reason) {
       this.cancellationReason = reason;
     }
-    
+
     return this.save();
   },
 
@@ -504,14 +505,14 @@ subscriptionSchema.methods = {
    */
   async changePlan(newPlanId, changeType, proratedAmount = 0, reason = null) {
     this.planChanges.push({
-      fromPlanId: this.planId,
+      fromPlanId: this.planId._id || this.planId,
       toPlanId: newPlanId,
       changeType,
       proratedAmount,
       effectiveDate: new Date(),
       reason
     });
-    
+
     this.planId = newPlanId;
     return this.save();
   },
@@ -528,7 +529,7 @@ subscriptionSchema.methods = {
       discountAmount: discountData.discountAmount,
       validUntil: discountData.validUntil
     };
-    
+
     return this.save();
   },
 
