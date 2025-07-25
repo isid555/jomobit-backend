@@ -8,7 +8,13 @@
     "dev": "nodemon server.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest tests/unit --coverage",
+    "test:integration": "jest tests/integration --coverage",
+    "test:e2e": "jest tests/e2e --coverage",
+    "test:performance": "jest tests/performance --testTimeout=60000",
+    "test:ci": "jest --coverage --ci --watchAll=false --maxWorkers=2",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e"
   },
   "keywords": [],
   "author": "",
