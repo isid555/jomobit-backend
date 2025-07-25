@@ -7,6 +7,17 @@ require('dotenv').config();
 const logger = require('./utils/logger');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { morganMiddleware, requestLogger } = require('./middleware/logging');
+const { sanitizeInput } = require('./middleware/validation');
+const { 
+  rateLimitConfigs, 
+  hppProtection, 
+  validateRequestSize, 
+  securityHeaders, 
+  correlationId,
+  contentSecurityPolicy
+} = require('./middleware/security');
+const { setupSwagger } = require('./config/swagger');
+const { getSecurityConfig, validateSecurityConfig } = require('./config/security');
 const databaseConnection = require('./config/database');
 const redisConnection = require('./config/redis');
 
@@ -20,42 +31,119 @@ class App {
   }
 
   initializeMiddlewares() {
-    // Security middleware
-    this.app.use(helmet());
-    
-    // CORS configuration
+    // Trust proxy for accurate IP addresses (must be first)
+    this.app.set('trust proxy', 1);
+
+    // Correlation ID for request tracking
+    this.app.use(correlationId);
+
+    // Security headers
+    this.app.use(helmet({
+      contentSecurityPolicy: false, // We'll handle this separately for API
+      crossOriginEmbedderPolicy: false
+    }));
+    this.app.use(securityHeaders);
+    this.app.use(contentSecurityPolicy);
+
+    // Request size validation
+    this.app.use(validateRequestSize('10mb'));
+
+    // HTTP Parameter Pollution protection
+    this.app.use(hppProtection);
+
+    // CORS configuration with enhanced security
     this.app.use(cors({
-      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, Postman, etc.)
+        if (!origin) {
+          return callback(null, true);
+        }
+
+        const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(',');
+        
+        // Check if origin is in allowed list
+        if (allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          // Log unauthorized CORS attempts for security monitoring
+          logger.warn('CORS blocked request from unauthorized origin', {
+            origin,
+            allowedOrigins: allowedOrigins.length,
+            userAgent: this.req?.get('User-Agent'),
+            ip: this.req?.ip,
+            timestamp: new Date().toISOString()
+          });
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization']
+      allowedHeaders: [
+        'Content-Type', 
+        'Authorization', 
+        'X-Correlation-ID',
+        'X-Request-ID',
+        'X-API-Key',
+        'Accept',
+        'Accept-Language',
+        'Content-Language'
+      ],
+      exposedHeaders: [
+        'X-Correlation-ID',
+        'X-Request-ID',
+        'X-Rate-Limit-Limit',
+        'X-Rate-Limit-Remaining',
+        'X-Rate-Limit-Reset',
+        'X-Total-Count',
+        'X-Page-Count'
+      ],
+      maxAge: 86400, // 24 hours
+      optionsSuccessStatus: 200, // Some legacy browsers choke on 204
+      preflightContinue: false
     }));
 
-    // Rate limiting
-    const limiter = rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 100, // limit each IP to 100 requests per windowMs
-      message: {
-        error: 'Too many requests from this IP, please try again later.'
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-    });
-    this.app.use('/api/', limiter);
+    // Enhanced rate limiting with different tiers
+    this.app.use('/api/auth', rateLimitConfigs.auth);
+    this.app.use('/api/admin', rateLimitConfigs.admin);
+    this.app.use('/api/posters/generate', rateLimitConfigs.generation);
+    this.app.use('/api/webhooks', rateLimitConfigs.webhook);
+    this.app.use('/api/templates/admin', rateLimitConfigs.upload);
+    this.app.use('/api/', rateLimitConfigs.general);
 
-    // Body parsing middleware
-    this.app.use(express.json({ limit: '10mb' }));
-    this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+    // Raw body capture for webhook signature validation
+    this.app.use('/api/webhooks', express.raw({ type: 'application/json' }), (req, res, next) => {
+      req.rawBody = req.body;
+      next();
+    });
+
+    // Body parsing middleware with size limits
+    this.app.use(express.json({ 
+      limit: '10mb',
+      verify: (req, res, buf) => {
+        // Store raw body for webhook signature validation
+        if (req.url.startsWith('/api/webhooks')) {
+          req.rawBody = buf.toString();
+        }
+      }
+    }));
+    this.app.use(express.urlencoded({ 
+      extended: true, 
+      limit: '10mb',
+      parameterLimit: 100
+    }));
+
+    // Input sanitization and validation
+    this.app.use(sanitizeInput());
 
     // Logging middleware
     this.app.use(morganMiddleware);
     this.app.use(requestLogger);
-
-    // Trust proxy for accurate IP addresses
-    this.app.set('trust proxy', 1);
   }
 
   initializeRoutes() {
+    // Setup Swagger documentation
+    setupSwagger(this.app);
+
     // Health check endpoint
     this.app.get('/health', (req, res) => {
       res.status(200).json({
@@ -189,6 +277,15 @@ class App {
 
   async start() {
     try {
+      // Validate security configuration
+      const securityErrors = validateSecurityConfig();
+      if (securityErrors.length > 0) {
+        logger.warn('Security configuration issues detected', {
+          errors: securityErrors,
+          timestamp: new Date().toISOString()
+        });
+      }
+
       // Connect to databases
       await this.connectDatabases();
 
@@ -196,7 +293,8 @@ class App {
       this.server = this.app.listen(this.port, () => {
         logger.info(`Server running on port ${this.port}`, {
           port: this.port,
-          environment: process.env.NODE_ENV || 'development'
+          environment: process.env.NODE_ENV || 'development',
+          securityConfigValid: securityErrors.length === 0
         });
       });
 
