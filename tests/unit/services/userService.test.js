@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const UserService = require('../../../src/services/userService');
-const CreditService = require('../../../src/services/creditService');
+const { CreditService } = require('../../../src/services/creditService');
 const User = require('../../../src/models/User');
 const CreditWallet = require('../../../src/models/CreditWallet');
 

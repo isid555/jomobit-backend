@@ -165,13 +165,24 @@ class PosterController {
   }
 
   /**
-   * Get poster generation job by ID
+   * Get poster generation job by ID with metadata
    * GET /api/posters/:jobId
    */
   async getGenerationJob(req, res) {
     try {
       const userId = req.user.id;
       const { jobId } = req.params;
+      const { includeMetadata = 'false' } = req.query;
+
+      // Validate ObjectId format
+      const mongoose = require('mongoose');
+      if (!mongoose.Types.ObjectId.isValid(jobId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid job ID format',
+          message: 'The provided job ID is not a valid format'
+        });
+      }
 
       // Get user by Auth0 ID first
       const UserService = require('../services/userService');
@@ -189,10 +200,51 @@ class PosterController {
         });
       }
 
-      res.json({
+      // Build response with optional metadata
+      const response = {
         success: true,
         job: job.toObject()
-      });
+      };
+
+      // Add detailed metadata if requested
+      if (includeMetadata === 'true') {
+        response.metadata = {
+          generationDetails: {
+            aiProvider: job.aiProvider,
+            prompt: job.prompt,
+            timing: job.timing,
+            retryCount: job.retryCount,
+            priority: job.priority
+          },
+          businessProfile: {
+            id: job.profileId._id,
+            name: job.profileId.name
+          },
+          template: {
+            id: job.templateId._id,
+            name: job.templateId.name,
+            aspectRatio: job.templateId.aspectRatio
+          },
+          processing: {
+            createdAt: job.createdAt,
+            startedAt: job.startedAt,
+            completedAt: job.completedAt,
+            totalDuration: job.getProcessingDuration()
+          }
+        };
+
+        // Add error details if job failed
+        if (job.status === 'failed' && job.error) {
+          response.metadata.error = {
+            message: job.error.message,
+            code: job.error.code,
+            provider: job.error.provider,
+            occurredAt: job.error.occurredAt
+          };
+        }
+      }
+
+      res.json(response);
 
     } catch (error) {
       if (error.name === 'UserNotFoundError') {
@@ -220,7 +272,7 @@ class PosterController {
     try {
       const userId = req.user.id;
       const { jobId } = req.params;
-      const { reason = 'User cancelled' } = req.body;
+      const { reason = 'User cancelled' } = req.body || {};
 
       // Get user by Auth0 ID first
       const UserService = require('../services/userService');
@@ -250,7 +302,7 @@ class PosterController {
         const statusCode = error.code === 'JOB_NOT_FOUND' ? 404 : 400;
         return res.status(statusCode).json({
           success: false,
-          error: error.code,
+          error: error.code === 'JOB_NOT_FOUND' ? 'Job not found' : error.code,
           message: error.message,
           details: error.details
         });
@@ -307,8 +359,8 @@ class PosterController {
 
     } catch (error) {
       if (error.name === 'GenerationError') {
-        const statusCode = error.code === 'JOB_NOT_FOUND' ? 404 : 
-                          error.code === 'INSUFFICIENT_CREDITS' ? 402 : 400;
+        const statusCode = error.code === 'JOB_NOT_FOUND' ? 404 :
+          error.code === 'INSUFFICIENT_CREDITS' ? 402 : 400;
         return res.status(statusCode).json({
           success: false,
           error: error.code,
@@ -335,13 +387,14 @@ class PosterController {
   }
 
   /**
-   * Get poster sharing options
+   * Get poster sharing options for social platforms
    * GET /api/posters/:jobId/share
    */
   async getPosterSharingOptions(req, res) {
     try {
       const userId = req.user.id;
       const { jobId } = req.params;
+      const { platform } = req.query; // Optional: filter for specific platform
 
       // Get user by Auth0 ID first
       const UserService = require('../services/userService');
@@ -370,40 +423,92 @@ class PosterController {
       // Generate sharing URLs for different platforms
       const baseUrl = process.env.FRONTEND_URL || 'https://jomobit.com';
       const posterUrl = job.result.imageUrl;
-      const shareText = `Check out my AI-generated poster created with Jomobit!`;
+      const businessName = job.profileId?.name || 'My Business';
+      const shareText = `Check out my AI-generated poster for ${businessName} created with Jomobit!`;
+      const hashtags = '#Jomobit #AIGenerated #Poster #Marketing';
 
-      const sharingOptions = {
+      const allSharingOptions = {
         instagram: {
+          platform: 'Instagram',
+          type: 'download',
           url: posterUrl,
-          instructions: 'Download the image and share it on Instagram'
+          downloadUrl: `${baseUrl}/api/posters/${jobId}/download?quality=high`,
+          instructions: 'Download the high-quality image and share it on Instagram',
+          recommendedText: `${shareText} ${hashtags}`,
+          aspectRatio: job.templateId?.aspectRatio ?
+            { width: job.templateId.aspectRatio.width, height: job.templateId.aspectRatio.height } :
+            { width: 1080, height: 1080 }
         },
         whatsapp: {
+          platform: 'WhatsApp',
+          type: 'share_url',
           url: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${posterUrl}`)}`,
-          text: shareText
+          text: shareText,
+          imageUrl: posterUrl,
+          instructions: 'Click to share via WhatsApp'
         },
         facebook: {
-          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(posterUrl)}`,
-          text: shareText
+          platform: 'Facebook',
+          type: 'share_url',
+          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(posterUrl)}&quote=${encodeURIComponent(shareText)}`,
+          text: shareText,
+          imageUrl: posterUrl,
+          instructions: 'Click to share on Facebook'
         },
         twitter: {
-          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(posterUrl)}`,
-          text: shareText
+          platform: 'Twitter',
+          type: 'share_url',
+          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(`${shareText} ${hashtags}`)}&url=${encodeURIComponent(posterUrl)}`,
+          text: `${shareText} ${hashtags}`,
+          imageUrl: posterUrl,
+          instructions: 'Click to share on Twitter'
         },
         linkedin: {
-          url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(posterUrl)}`,
-          text: shareText
+          platform: 'LinkedIn',
+          type: 'share_url',
+          url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(posterUrl)}&summary=${encodeURIComponent(shareText)}`,
+          text: shareText,
+          imageUrl: posterUrl,
+          instructions: 'Click to share on LinkedIn'
         },
         direct: {
+          platform: 'Direct Link',
+          type: 'direct',
           url: posterUrl,
-          downloadUrl: posterUrl // In real implementation, this would be a download endpoint
+          downloadUrl: `${baseUrl}/api/posters/${jobId}/download`,
+          thumbnailUrl: job.result.thumbnailUrl || posterUrl,
+          instructions: 'Copy link or download image directly'
         }
       };
+
+      // Filter by platform if specified
+      const sharingOptions = platform && allSharingOptions[platform]
+        ? { [platform]: allSharingOptions[platform] }
+        : allSharingOptions;
+
+      // Log sharing activity
+      logger.info('Poster sharing options requested', {
+        jobId,
+        userId: actualUserId,
+        platform: platform || 'all',
+        businessProfile: job.profileId?.name
+      });
 
       res.json({
         success: true,
         jobId,
         posterUrl,
-        sharingOptions
+        businessProfile: {
+          id: job.profileId._id,
+          name: job.profileId.name
+        },
+        template: {
+          id: job.templateId._id,
+          name: job.templateId.name,
+          aspectRatio: job.templateId.aspectRatio
+        },
+        sharingOptions,
+        supportedPlatforms: ['instagram', 'whatsapp', 'facebook', 'twitter', 'linkedin', 'direct']
       });
 
     } catch (error) {
@@ -425,14 +530,14 @@ class PosterController {
   }
 
   /**
-   * Download poster
+   * Download poster with ImageKit CDN integration
    * GET /api/posters/:jobId/download
    */
   async downloadPoster(req, res) {
     try {
       const userId = req.user.id;
       const { jobId } = req.params;
-      const { quality = 'high' } = req.query;
+      const { quality = 'high', format = 'png' } = req.query;
 
       // Get user by Auth0 ID first
       const UserService = require('../services/userService');
@@ -458,26 +563,46 @@ class PosterController {
         });
       }
 
-      // In a real implementation, this would:
-      // 1. Get the appropriate quality version from ImageKit
-      // 2. Set proper headers for download
-      // 3. Stream the file to the client
-      
-      // For now, redirect to the image URL
-      const downloadUrl = job.result.imageUrl;
-      
+      // Generate ImageKit CDN URL with transformations based on quality
+      const baseImageUrl = job.result.imageUrl;
+      let downloadUrl = baseImageUrl;
+
+      // Apply ImageKit transformations for different quality levels
+      if (baseImageUrl.includes('imagekit.io')) {
+        const transformations = this.getImageKitTransformations(quality, format);
+        downloadUrl = baseImageUrl.replace('/tr:', `/tr:${transformations},`);
+      }
+
+      // Generate appropriate filename
+      const businessName = job.profileId?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'poster';
+      const timestamp = new Date().toISOString().split('T')[0];
+      const filename = `jomobit_${businessName}_${timestamp}_${jobId.slice(-8)}.${format}`;
+
+      // Log download activity
       logger.info('Poster download requested', {
         jobId,
         userId: actualUserId,
         quality,
-        imageUrl: downloadUrl
+        format,
+        filename,
+        businessProfile: job.profileId?.name
       });
 
       res.json({
         success: true,
         downloadUrl,
-        filename: `jomobit-poster-${jobId}.png`,
+        filename,
         quality,
+        format,
+        fileSize: this.estimateFileSize(job.templateId?.aspectRatio, quality),
+        metadata: {
+          businessProfile: job.profileId?.name,
+          templateName: job.templateId?.name,
+          createdAt: job.createdAt,
+          aspectRatio: job.templateId?.aspectRatio ?
+            { width: job.templateId.aspectRatio.width, height: job.templateId.aspectRatio.height } :
+            { width: 1080, height: 1080 }
+        },
         message: 'Download URL generated successfully'
       });
 
@@ -496,6 +621,180 @@ class PosterController {
         error: 'Internal server error',
         message: 'Failed to download poster'
       });
+    }
+  }
+
+  /**
+   * Get poster metadata and generation details
+   * GET /api/posters/:jobId/metadata
+   */
+  async getPosterMetadata(req, res) {
+    try {
+      const userId = req.user.id;
+      const { jobId } = req.params;
+
+      // Get user by Auth0 ID first
+      const UserService = require('../services/userService');
+      const userService = new UserService();
+      const userResult = await userService.getUserByAuth0Id(userId);
+      const actualUserId = userResult.user._id;
+
+      const job = await this.generationService.getGenerationJobForUser(jobId, actualUserId);
+
+      if (!job) {
+        return res.status(404).json({
+          success: false,
+          error: 'Job not found',
+          message: 'Generation job not found or access denied'
+        });
+      }
+
+      // Build comprehensive metadata response
+      const metadata = {
+        job: {
+          id: job._id,
+          status: job.status,
+          priority: job.priority,
+          creditsReserved: job.creditsReserved,
+          retryCount: job.retryCount
+        },
+        businessProfile: {
+          id: job.profileId._id,
+          name: job.profileId.name,
+          tagline: job.profileId.tagline,
+          colorPalette: job.profileId.colorPalette,
+          typography: job.profileId.typography
+        },
+        template: {
+          id: job.templateId._id,
+          name: job.templateId.name,
+          aspectRatio: job.templateId.aspectRatio,
+          type: job.templateId.type,
+          tags: job.templateId.tags
+        },
+        aiProvider: {
+          llm: job.aiProvider.llm,
+          diffusion: job.aiProvider.diffusion
+        },
+        generation: {
+          prompt: job.prompt?.generated,
+          promptParameters: job.prompt?.parameters,
+          promptGeneratedAt: job.prompt?.generatedAt
+        },
+        timing: {
+          createdAt: job.createdAt,
+          startedAt: job.startedAt,
+          completedAt: job.completedAt,
+          totalDuration: job.getProcessingDuration(),
+          promptGenerationTime: job.timing?.promptGenerationTime,
+          imageGenerationTime: job.timing?.imageGenerationTime
+        },
+        result: job.status === 'completed' ? {
+          imageUrl: job.result.imageUrl,
+          thumbnailUrl: job.result.thumbnailUrl,
+          imagekitFileId: job.result.imagekitFileId,
+          metadata: job.result.metadata
+        } : null,
+        error: job.status === 'failed' && job.error ? {
+          message: job.error.message,
+          code: job.error.code,
+          provider: job.error.provider,
+          occurredAt: job.error.occurredAt
+        } : null
+      };
+
+      logger.info('Poster metadata requested', {
+        jobId,
+        userId: actualUserId,
+        status: job.status,
+        businessProfile: job.profileId?.name
+      });
+
+      res.json({
+        success: true,
+        jobId,
+        metadata
+      });
+
+    } catch (error) {
+      if (error.name === 'UserNotFoundError') {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found',
+          message: 'User profile not found in database'
+        });
+      }
+
+      logger.error('Error fetching poster metadata:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: 'Failed to fetch poster metadata'
+      });
+    }
+  }
+
+  /**
+   * Helper method to get ImageKit transformations based on quality
+   * @private
+   */
+  getImageKitTransformations(quality, format) {
+    const transformations = [];
+
+    // Quality settings
+    switch (quality) {
+      case 'low':
+        transformations.push('q-60');
+        break;
+      case 'medium':
+        transformations.push('q-80');
+        break;
+      case 'high':
+      default:
+        transformations.push('q-90');
+        break;
+    }
+
+    // Format
+    if (format && format !== 'png') {
+      transformations.push(`f-${format}`);
+    }
+
+    return transformations.join(',');
+  }
+
+  /**
+   * Helper method to estimate file size based on dimensions and quality
+   * @private
+   */
+  estimateFileSize(aspectRatio, quality) {
+    if (!aspectRatio) return 'Unknown';
+
+    const { width, height } = aspectRatio;
+    const pixels = width * height;
+
+    // Rough estimation based on quality
+    let bytesPerPixel;
+    switch (quality) {
+      case 'low':
+        bytesPerPixel = 1.5;
+        break;
+      case 'medium':
+        bytesPerPixel = 2.5;
+        break;
+      case 'high':
+      default:
+        bytesPerPixel = 4;
+        break;
+    }
+
+    const estimatedBytes = pixels * bytesPerPixel;
+
+    // Convert to human readable format
+    if (estimatedBytes < 1024 * 1024) {
+      return `${Math.round(estimatedBytes / 1024)}KB`;
+    } else {
+      return `${Math.round(estimatedBytes / (1024 * 1024) * 10) / 10}MB`;
     }
   }
 
@@ -641,4 +940,5 @@ class PosterController {
   }
 }
 
-module.exports = new PosterController();
+const posterController = new PosterController();
+module.exports = posterController;

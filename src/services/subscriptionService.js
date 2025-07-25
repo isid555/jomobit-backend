@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const Subscription = require('../models/Subscription');
 const Plan = require('../models/Plan');
 const User = require('../models/User');
-const CreditService = require('./creditService');
+const { CreditService } = require('./creditService');
 const logger = require('../utils/logger');
 
 /**

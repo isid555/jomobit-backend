@@ -555,9 +555,16 @@ generationJobSchema.methods = {
    * @returns {number|null} Processing duration or null
    */
   getProcessingDuration() {
+    // Use timing.totalProcessingTime if available
+    if (this.timing && this.timing.totalProcessingTime) {
+      return this.timing.totalProcessingTime;
+    }
+    
+    // Fall back to timestamp calculation
     if (this.startedAt && this.completedAt) {
       return this.completedAt.getTime() - this.startedAt.getTime();
     }
+    
     return null;
   }
 };
