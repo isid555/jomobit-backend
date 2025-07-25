@@ -1,4 +1,4 @@
-const { ValidationError } = require('./errorHandler');
+const { ValidationError, RequestValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 
 /**
@@ -348,26 +348,229 @@ const sanitizeRequestBody = (allowedFields) => {
 };
 
 /**
- * Log validation errors for monitoring
+ * Enhanced validation error logging with detailed context
  */
 const logValidationError = (req, res, next) => {
   const originalNext = next;
   next = (error) => {
-    if (error instanceof ValidationError) {
-      logger.warn('Validation error', {
-        error: error.message,
-        url: req.url,
-        method: req.method,
-        body: req.body,
-        params: req.params,
-        query: req.query,
-        userId: req.user?.id
+    if (error instanceof ValidationError || error instanceof RequestValidationError) {
+      logger.logError(error, req, {
+        validationType: error.constructor.name,
+        validationDetails: error.details || {},
+        sanitizedBody: sanitizeBodyForLogging(req.body)
       });
     }
     originalNext(error);
   };
   next();
 };
+
+/**
+ * Comprehensive validation middleware that combines multiple validations
+ * @param {Function[]} validations - Array of validation middleware functions
+ * @returns {Function} Express middleware
+ */
+const validateRequest = (validations) => {
+  return async (req, res, next) => {
+    const errors = [];
+    
+    try {
+      // Run all validations and collect errors
+      for (const validation of validations) {
+        try {
+          await new Promise((resolve, reject) => {
+            validation(req, res, (error) => {
+              if (error) reject(error);
+              else resolve();
+            });
+          });
+        } catch (error) {
+          if (error instanceof ValidationError) {
+            errors.push({
+              field: error.details?.field || 'unknown',
+              message: error.message,
+              code: error.code,
+              value: error.details?.value
+            });
+          } else {
+            errors.push({
+              field: 'unknown',
+              message: error.message,
+              code: 'VALIDATION_ERROR'
+            });
+          }
+        }
+      }
+
+      if (errors.length > 0) {
+        const requestValidationError = new RequestValidationError(errors, {
+          url: req.url,
+          method: req.method,
+          totalErrors: errors.length
+        });
+        
+        return next(requestValidationError);
+      }
+
+      next();
+    } catch (error) {
+      logger.error('Validation middleware error', {
+        error: error.message,
+        stack: error.stack,
+        correlationId: req.correlationId
+      });
+      
+      return next(new ValidationError('Validation processing failed'));
+    }
+  };
+};
+
+/**
+ * Enhanced validation with detailed error context
+ * @param {string} fieldName - Field name to validate
+ * @param {Function} validator - Validation function
+ * @param {string} errorMessage - Custom error message
+ * @returns {Function} Express middleware
+ */
+const createDetailedValidator = (fieldName, validator, errorMessage) => {
+  return (req, res, next) => {
+    try {
+      const value = req.body[fieldName] || req.params[fieldName] || req.query[fieldName];
+      
+      if (!validator(value)) {
+        throw new ValidationError(errorMessage, fieldName, value, {
+          validator: validator.name,
+          location: req.body[fieldName] ? 'body' : req.params[fieldName] ? 'params' : 'query'
+        });
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
+/**
+ * Validate JSON schema
+ * @param {Object} schema - JSON schema object
+ * @returns {Function} Express middleware
+ */
+const validateJsonSchema = (schema) => {
+  return (req, res, next) => {
+    try {
+      // This would require a JSON schema validation library like Ajv
+      // For now, we'll implement basic validation
+      const errors = validateAgainstSchema(req.body, schema);
+      
+      if (errors.length > 0) {
+        const requestValidationError = new RequestValidationError(errors, {
+          schema: schema.title || 'unknown',
+          schemaVersion: schema.version || '1.0'
+        });
+        
+        return next(requestValidationError);
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
+/**
+ * Basic schema validation (placeholder for full JSON schema validation)
+ */
+function validateAgainstSchema(data, schema) {
+  const errors = [];
+  
+  if (schema.required) {
+    for (const field of schema.required) {
+      if (!data[field]) {
+        errors.push({
+          field,
+          message: `${field} is required`,
+          code: 'REQUIRED_FIELD_MISSING',
+          value: data[field]
+        });
+      }
+    }
+  }
+
+  if (schema.properties) {
+    for (const [field, fieldSchema] of Object.entries(schema.properties)) {
+      const value = data[field];
+      
+      if (value !== undefined) {
+        if (fieldSchema.type && typeof value !== fieldSchema.type) {
+          errors.push({
+            field,
+            message: `${field} must be of type ${fieldSchema.type}`,
+            code: 'INVALID_TYPE',
+            value,
+            expectedType: fieldSchema.type,
+            actualType: typeof value
+          });
+        }
+        
+        if (fieldSchema.minLength && value.length < fieldSchema.minLength) {
+          errors.push({
+            field,
+            message: `${field} must be at least ${fieldSchema.minLength} characters`,
+            code: 'MIN_LENGTH_VIOLATION',
+            value,
+            minLength: fieldSchema.minLength,
+            actualLength: value.length
+          });
+        }
+        
+        if (fieldSchema.maxLength && value.length > fieldSchema.maxLength) {
+          errors.push({
+            field,
+            message: `${field} must be no more than ${fieldSchema.maxLength} characters`,
+            code: 'MAX_LENGTH_VIOLATION',
+            value,
+            maxLength: fieldSchema.maxLength,
+            actualLength: value.length
+          });
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Sanitize request body for logging (remove sensitive data)
+ */
+function sanitizeBodyForLogging(body) {
+  if (!body || typeof body !== 'object') {
+    return body;
+  }
+  
+  const sensitiveFields = [
+    'password',
+    'token',
+    'secret',
+    'key',
+    'authorization',
+    'credit_card',
+    'ssn',
+    'social_security'
+  ];
+  
+  const sanitized = { ...body };
+  
+  sensitiveFields.forEach(field => {
+    if (sanitized[field]) {
+      sanitized[field] = '[REDACTED]';
+    }
+  });
+  
+  return sanitized;
+}
 
 module.exports = {
   validateRequiredFields,
@@ -385,5 +588,8 @@ module.exports = {
   validateTemplateCreation,
   validateSubscriptionUpgrade,
   sanitizeRequestBody,
-  logValidationError
+  logValidationError,
+  validateRequest,
+  createDetailedValidator,
+  validateJsonSchema
 };
