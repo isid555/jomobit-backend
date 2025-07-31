@@ -266,7 +266,7 @@ class App {
       await databaseConnection.connect();
       
       // Connect to Redis
-      await redisConnection.connect();
+      // await redisConnection.connect();
       
       logger.info('All database connections established');
     } catch (error) {

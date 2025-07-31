@@ -305,7 +305,7 @@ router.post('/ai/ideogram',
 );
 
 /**
- * @swagger
+ * @swaggger/@ -> this needs to be added and then the code below needs to be uncommented
  * /api/webhooks/ai/gemini:
  *   post:
  *     summary: Gemini webhook endpoint
@@ -320,13 +320,13 @@ router.post('/ai/ideogram',
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-router.post('/ai/gemini',
-  webhookValidators.gemini,
-  auditLog('gemini_webhook'),
-  async (req, res) => {
-    await webhookController.handleGeminiWebhook(req, res);
-  }
-);
+// router.post('/ai/gemini',
+//   webhookValidators.gemini,
+//   auditLog('gemini_webhook'),
+//   async (req, res) => {
+//     await webhookController.handleGeminiWebhook(req, res);
+//   }
+// );
 
 /**
  * @swagger

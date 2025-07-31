@@ -8,6 +8,16 @@ const logger = require('../utils/logger');
 class AuthController {
   constructor() {
     this.userService = new UserService();
+    
+    // Bind all methods to preserve 'this' context
+    this.getCurrentUser = this.getCurrentUser.bind(this);
+    this.updateLastLogin = this.updateLastLogin.bind(this);
+    this.getUserPermissions = this.getUserPermissions.bind(this);
+    this.getUserProfile = this.getUserProfile.bind(this);
+    this.getUsers = this.getUsers.bind(this);
+    this.suspendUser = this.suspendUser.bind(this);
+    this.activateUser = this.activateUser.bind(this);
+    this.getUserStats = this.getUserStats.bind(this);
   }
 
   /**
@@ -17,6 +27,9 @@ class AuthController {
   async getCurrentUser(req, res) {
     try {
       const { id: auth0Id } = req.user;
+
+      console.log("Middleware breached entered service");
+      // console.log("Auth Id: ", id);
 
       const result = await this.userService.getUserByAuth0Id(auth0Id);
 
@@ -382,4 +395,5 @@ class AuthController {
   }
 }
 
+// Export an instance with methods bound to the correct context
 module.exports = new AuthController();

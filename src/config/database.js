@@ -11,13 +11,13 @@ class DatabaseConnection {
       const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/jomobit';
       
       const options = {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-        maxPoolSize: 10,
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-        bufferMaxEntries: 0,
-        bufferCommands: false,
+        // useNewUrlParser: true,
+        // useUnifiedTopology: true,
+        // maxPoolSize: 10,
+        // serverSelectionTimeoutMS: 5000,
+        // socketTimeoutMS: 45000,
+        // bufferMaxEntries: 0,
+        // bufferCommands: false,
       };
 
       this.connection = await mongoose.connect(mongoUri, options);

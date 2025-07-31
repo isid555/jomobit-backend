@@ -14,11 +14,14 @@ const createRateLimit = (options = {}) => {
     message = 'Too many requests from this IP, please try again later.',
     skipSuccessfulRequests = false,
     skipFailedRequests = false,
-    keyGenerator = null, // Use default IP key generator
+    keyGenerator, // Use default IP key generator
     onLimitReached = null
   } = options;
 
-  return rateLimit({
+  
+
+
+  const config = {
     windowMs,
     max,
     message: {
@@ -51,7 +54,15 @@ const createRateLimit = (options = {}) => {
         timestamp: new Date().toISOString()
       });
     }
-  });
+  };
+
+  // Only add keyGenerator if it's defined
+  if (keyGenerator) {
+    config.keyGenerator = keyGenerator;
+  }
+
+  return rateLimit(config);
+
 };
 
 /**

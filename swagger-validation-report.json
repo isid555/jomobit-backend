@@ -1,0 +1,972 @@
+{
+  "metadata": {
+    "timestamp": "2025-07-30T04:05:03.738Z",
+    "testDuration": 530,
+    "configuration": {
+      "baseUrl": "http://localhost:4000",
+      "hasTestToken": false,
+      "hasAdminToken": false,
+      "verbose": false,
+      "skipServerStart": true
+    },
+    "swaggerSpec": {
+      "version": "3.0.0",
+      "pathCount": 81,
+      "schemaCount": 66
+    }
+  },
+  "summary": {
+    "total": 98,
+    "passed": 42,
+    "failed": 53,
+    "skipped": 3,
+    "warnings": 16,
+    "successRate": "42.86"
+  },
+  "details": {
+    "errors": [
+      {
+        "message": "❌ GET /api-docs/swagger.json - 500 Internal Server Error",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.475Z"
+      },
+      {
+        "endpoint": "GET /api-docs/swagger.json",
+        "description": "Swagger JSON spec",
+        "status": 500,
+        "error": "Internal Server Error",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /api/templates - 500 Internal Server Error",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.484Z"
+      },
+      {
+        "endpoint": "GET /api/templates",
+        "description": "List templates",
+        "status": 500,
+        "error": "Internal Server Error",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /api/templates/featured - 500 Internal Server Error",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.486Z"
+      },
+      {
+        "endpoint": "GET /api/templates/featured",
+        "description": "Get featured templates",
+        "status": 500,
+        "error": "Internal Server Error",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /api/templates/categories - 500 Internal Server Error",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.489Z"
+      },
+      {
+        "endpoint": "GET /api/templates/categories",
+        "description": "Get template categories",
+        "status": 500,
+        "error": "Internal Server Error",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/auth0 - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.494Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/auth0",
+        "description": "Auth0 webhook",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/razorpay - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.497Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/razorpay",
+        "description": "Razorpay webhook",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/dashboard - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.499Z"
+      },
+      {
+        "endpoint": "GET /admin/dashboard",
+        "description": "Get admin dashboard insights",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/metrics/users - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.500Z"
+      },
+      {
+        "endpoint": "GET /admin/metrics/users",
+        "description": "Get user metrics and analytics",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/metrics/revenue - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.501Z"
+      },
+      {
+        "endpoint": "GET /admin/metrics/revenue",
+        "description": "Get revenue metrics and analytics",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/users - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.503Z"
+      },
+      {
+        "endpoint": "GET /admin/users",
+        "description": "Get users list with filtering and pagination",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/users/{userId} - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.505Z"
+      },
+      {
+        "endpoint": "GET /admin/users/{userId}",
+        "description": "Get detailed user information",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /admin/users/{userId}/suspend - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.514Z"
+      },
+      {
+        "endpoint": "POST /admin/users/{userId}/suspend",
+        "description": "Suspend user account",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /admin/users/{userId}/reactivate - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.516Z"
+      },
+      {
+        "endpoint": "POST /admin/users/{userId}/reactivate",
+        "description": "Reactivate suspended user account",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/plans - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.517Z"
+      },
+      {
+        "endpoint": "GET /admin/plans",
+        "description": "Get all subscription plans with statistics",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /admin/plans - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.519Z"
+      },
+      {
+        "endpoint": "POST /admin/plans",
+        "description": "Create new subscription plan",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ PUT /admin/plans/{planId} - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.521Z"
+      },
+      {
+        "endpoint": "PUT /admin/plans/{planId}",
+        "description": "Update existing subscription plan",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ DELETE /admin/plans/{planId} - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.522Z"
+      },
+      {
+        "endpoint": "DELETE /admin/plans/{planId}",
+        "description": "Delete subscription plan",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/templates - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.525Z"
+      },
+      {
+        "endpoint": "GET /admin/templates",
+        "description": "Get templates with administrative statistics",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /admin/templates/batch - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.527Z"
+      },
+      {
+        "endpoint": "POST /admin/templates/batch",
+        "description": "Batch upload templates",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ PUT /admin/templates/{templateId}/status - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.529Z"
+      },
+      {
+        "endpoint": "PUT /admin/templates/{templateId}/status",
+        "description": "Update template status",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/payments/transactions - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.530Z"
+      },
+      {
+        "endpoint": "GET /admin/payments/transactions",
+        "description": "Get payment transactions with filtering",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/payments/analytics - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.531Z"
+      },
+      {
+        "endpoint": "GET /admin/payments/analytics",
+        "description": "Get payment analytics and insights",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/payments/failed - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.533Z"
+      },
+      {
+        "endpoint": "GET /admin/payments/failed",
+        "description": "Get failed payment transactions",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /admin/slack/notify - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.534Z"
+      },
+      {
+        "endpoint": "POST /admin/slack/notify",
+        "description": "Send Slack notification",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /admin/slack/daily-summary - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.536Z"
+      },
+      {
+        "endpoint": "POST /admin/slack/daily-summary",
+        "description": "Send daily summary report",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/system/health - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.537Z"
+      },
+      {
+        "endpoint": "GET /admin/system/health",
+        "description": "Perform comprehensive system health check",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/system/config - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.540Z"
+      },
+      {
+        "endpoint": "GET /admin/system/config",
+        "description": "Get system configuration overview",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /admin/export/{type} - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.542Z"
+      },
+      {
+        "endpoint": "GET /admin/export/{type}",
+        "description": "Export system data",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /api/subscriptions/plans - 500 Internal Server Error",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.600Z"
+      },
+      {
+        "endpoint": "GET /api/subscriptions/plans",
+        "description": "Get available plans",
+        "status": 500,
+        "error": "Internal Server Error",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /api/subscriptions/plans/{planId} - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.639Z"
+      },
+      {
+        "endpoint": "GET /api/subscriptions/plans/{planId}",
+        "description": "Get plan by ID",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.648Z"
+      },
+      {
+        "endpoint": "GET /templates",
+        "description": "Get templates with filtering and pagination",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates/search - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.649Z"
+      },
+      {
+        "endpoint": "GET /templates/search",
+        "description": "Search templates by keyword",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates/filters - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.650Z"
+      },
+      {
+        "endpoint": "GET /templates/filters",
+        "description": "Get available filter options",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates/featured - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.652Z"
+      },
+      {
+        "endpoint": "GET /templates/featured",
+        "description": "Get featured templates",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates/popular - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.653Z"
+      },
+      {
+        "endpoint": "GET /templates/popular",
+        "description": "Get popular templates",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates/recent - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.654Z"
+      },
+      {
+        "endpoint": "GET /templates/recent",
+        "description": "Get recently added templates",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates/{templateId} - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.656Z"
+      },
+      {
+        "endpoint": "GET /templates/{templateId}",
+        "description": "Get template by ID",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /templates/admin - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.659Z"
+      },
+      {
+        "endpoint": "POST /templates/admin",
+        "description": "Create new template (Admin only)",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates/admin - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.661Z"
+      },
+      {
+        "endpoint": "GET /templates/admin",
+        "description": "Get all templates for admin management",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ GET /templates/admin/stats - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.662Z"
+      },
+      {
+        "endpoint": "GET /templates/admin/stats",
+        "description": "Get template statistics and analytics",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ PUT /templates/admin/{templateId} - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.664Z"
+      },
+      {
+        "endpoint": "PUT /templates/admin/{templateId}",
+        "description": "Update template (Admin only)",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ DELETE /templates/admin/{templateId} - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.665Z"
+      },
+      {
+        "endpoint": "DELETE /templates/admin/{templateId}",
+        "description": "Delete template (Admin only)",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /templates/admin/{templateId}/toggle-featured - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.666Z"
+      },
+      {
+        "endpoint": "POST /templates/admin/{templateId}/toggle-featured",
+        "description": "Toggle template featured status (Admin only)",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /templates/admin/{templateId}/archive - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.667Z"
+      },
+      {
+        "endpoint": "POST /templates/admin/{templateId}/archive",
+        "description": "Archive template (Admin only)",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /templates/admin/{templateId}/activate - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.669Z"
+      },
+      {
+        "endpoint": "POST /templates/admin/{templateId}/activate",
+        "description": "Activate template (Admin only)",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /templates/admin/batch-upload - 404 Not Found (endpoint may not be implemented)",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.670Z"
+      },
+      {
+        "endpoint": "POST /templates/admin/batch-upload",
+        "description": "Batch upload templates (Admin only)",
+        "status": 404,
+        "error": "Not Found",
+        "requiresAuth": true,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/auth0/user-registration - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.673Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/auth0/user-registration",
+        "description": "Auth0 user registration webhook",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/auth0/user-login - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.676Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/auth0/user-login",
+        "description": "Auth0 user login webhook",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/auth0/user-update - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.678Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/auth0/user-update",
+        "description": "Auth0 user update webhook",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/auth0/user-deletion - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.679Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/auth0/user-deletion",
+        "description": "Auth0 user deletion webhook",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/ai/openai - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.717Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/ai/openai",
+        "description": "OpenAI webhook endpoint",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/ai/ideogram - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.719Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/ai/ideogram",
+        "description": "Ideogram webhook endpoint",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      },
+      {
+        "message": "❌ POST /api/webhooks/slack - 401 Unauthorized",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.721Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/slack",
+        "description": "Slack webhook endpoint",
+        "status": 401,
+        "error": "Unauthorized",
+        "requiresAuth": false,
+        "expectFailure": false
+      }
+    ],
+    "warnings": [
+      {
+        "message": "Found 16 specification issues",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.459Z"
+      },
+      {
+        "message": "Path documentation issues:",
+        "data": [
+          "GET /api/auth/me: Missing description",
+          "POST /api/auth/login: Missing description",
+          "GET /api/auth/permissions: Missing description",
+          "GET /api/auth/profile: Missing description",
+          "GET /api/auth/admin/users: Missing description",
+          "POST /api/auth/admin/users/{userId}/suspend: Missing description",
+          "POST /api/auth/admin/users/{userId}/activate: Missing description",
+          "GET /api/auth/admin/stats: Missing description",
+          "POST /api/profiles: Missing description",
+          "GET /api/profiles: Missing description",
+          "GET /api/profiles/search: Missing description",
+          "GET /api/profiles/{profileId}: Missing description",
+          "PUT /api/profiles/{profileId}: Missing description",
+          "POST /api/profiles/{profileId}/deactivate: Missing description",
+          "POST /api/profiles/{profileId}/activate: Missing description",
+          "GET /api/profiles/{profileId}/generation-summary: Missing description"
+        ],
+        "timestamp": "2025-07-30T04:05:03.459Z"
+      },
+      {
+        "message": "No test JWT token provided, skipping authenticated tests",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.482Z"
+      },
+      {
+        "message": "Skipping profile tests - no auth token",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.482Z"
+      },
+      {
+        "message": "Skipping poster tests - no auth token",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.489Z"
+      },
+      {
+        "message": "Skipping subscription tests - no auth token",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.489Z"
+      },
+      {
+        "message": "Skipping admin tests - no admin token provided",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.489Z"
+      },
+      {
+        "message": "⚠️  Error scenario: 404 Not Found test - Expected 404, got 200",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.728Z"
+      },
+      {
+        "test": "404 Not Found test",
+        "expected": 404,
+        "actual": 200
+      },
+      {
+        "message": "⚠️  Error scenario: Invalid request body test - Expected 400, got 401",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.731Z"
+      },
+      {
+        "test": "Invalid request body test",
+        "expected": 400,
+        "actual": 401
+      },
+      {
+        "message": "⚠️  Error scenario: Invalid ID format test - Expected 400, got 401",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.735Z"
+      },
+      {
+        "test": "Invalid ID format test",
+        "expected": 400,
+        "actual": 401
+      },
+      {
+        "message": "Skipping auth flow test: Access protected endpoint with valid token - Required token not available",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.737Z"
+      },
+      {
+        "message": "Skipping auth flow test: Access admin endpoint without admin token - Required token not available",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.737Z"
+      },
+      {
+        "message": "Skipping auth flow test: Access admin endpoint with admin token - Required token not available",
+        "data": null,
+        "timestamp": "2025-07-30T04:05:03.737Z"
+      }
+    ],
+    "schemaValidations": [
+      {
+        "endpoint": "GET /health",
+        "status": 200,
+        "hasData": true,
+        "dataType": "object",
+        "timestamp": "2025-07-30T04:05:03.462Z"
+      },
+      {
+        "endpoint": "GET /api",
+        "status": 200,
+        "hasData": true,
+        "dataType": "object",
+        "timestamp": "2025-07-30T04:05:03.466Z"
+      },
+      {
+        "endpoint": "GET /api-docs",
+        "status": 200,
+        "hasData": true,
+        "dataType": "string",
+        "timestamp": "2025-07-30T04:05:03.471Z"
+      },
+      {
+        "endpoint": "POST /api/subscriptions/webhooks/razorpay",
+        "status": 200,
+        "hasData": true,
+        "dataType": "object",
+        "timestamp": "2025-07-30T04:05:03.642Z"
+      },
+      {
+        "endpoint": "POST /api/webhooks/ai/generation",
+        "status": 200,
+        "hasData": true,
+        "dataType": "object",
+        "timestamp": "2025-07-30T04:05:03.715Z"
+      },
+      {
+        "endpoint": "GET /api/webhooks/health",
+        "status": 200,
+        "hasData": true,
+        "dataType": "object",
+        "timestamp": "2025-07-30T04:05:03.726Z"
+      }
+    ],
+    "authenticationTests": [
+      {
+        "test": "Access protected endpoint without token",
+        "status": "passed",
+        "expectedStatus": 401,
+        "actualStatus": 401
+      }
+    ],
+    "endpointCoverage": [
+      "GET /health",
+      "GET /api",
+      "GET /api-docs",
+      "GET /api-docs/swagger.json",
+      "GET /api/auth/me",
+      "GET /api/auth/profile",
+      "GET /api/auth/permissions",
+      "GET /api/templates",
+      "GET /api/templates/featured",
+      "GET /api/templates/categories",
+      "POST /api/webhooks/auth0",
+      "POST /api/webhooks/razorpay",
+      "GET /admin/dashboard",
+      "GET /admin/metrics/users",
+      "GET /admin/metrics/revenue",
+      "GET /admin/users",
+      "GET /admin/users/{userId}",
+      "POST /admin/users/{userId}/suspend",
+      "POST /admin/users/{userId}/reactivate",
+      "GET /admin/plans",
+      "POST /admin/plans",
+      "PUT /admin/plans/{planId}",
+      "DELETE /admin/plans/{planId}",
+      "GET /admin/templates",
+      "POST /admin/templates/batch",
+      "PUT /admin/templates/{templateId}/status",
+      "GET /admin/payments/transactions",
+      "GET /admin/payments/analytics",
+      "GET /admin/payments/failed",
+      "POST /admin/slack/notify",
+      "POST /admin/slack/daily-summary",
+      "GET /admin/system/health",
+      "GET /admin/system/config",
+      "GET /admin/export/{type}",
+      "POST /api/auth/login",
+      "GET /api/auth/admin/users",
+      "POST /api/auth/admin/users/{userId}/suspend",
+      "POST /api/auth/admin/users/{userId}/activate",
+      "GET /api/auth/admin/stats",
+      "POST /api/posters/generate",
+      "GET /api/posters/history",
+      "GET /api/posters/stats",
+      "GET /api/posters/{jobId}",
+      "GET /api/posters/{jobId}/metadata",
+      "POST /api/posters/{jobId}/cancel",
+      "POST /api/posters/{jobId}/retry",
+      "GET /api/posters/{jobId}/share",
+      "GET /api/posters/{jobId}/download",
+      "GET /api/posters/admin",
+      "GET /api/posters/admin/stats",
+      "POST /api/profiles",
+      "GET /api/profiles",
+      "GET /api/profiles/search",
+      "GET /api/profiles/{profileId}",
+      "PUT /api/profiles/{profileId}",
+      "POST /api/profiles/{profileId}/deactivate",
+      "POST /api/profiles/{profileId}/activate",
+      "GET /api/profiles/{profileId}/generation-summary",
+      "GET /api/subscriptions/current",
+      "GET /api/subscriptions/history",
+      "POST /api/subscriptions/upgrade",
+      "POST /api/subscriptions/cancel",
+      "GET /api/subscriptions/billing",
+      "GET /api/subscriptions/plans",
+      "GET /api/subscriptions/plans/{planId}",
+      "POST /api/subscriptions/webhooks/razorpay",
+      "GET /api/subscriptions/admin/analytics",
+      "GET /api/subscriptions/admin",
+      "POST /api/subscriptions/admin/process-cancellations",
+      "GET /templates",
+      "GET /templates/search",
+      "GET /templates/filters",
+      "GET /templates/featured",
+      "GET /templates/popular",
+      "GET /templates/recent",
+      "GET /templates/{templateId}",
+      "POST /templates/admin",
+      "GET /templates/admin",
+      "GET /templates/admin/stats",
+      "PUT /templates/admin/{templateId}",
+      "DELETE /templates/admin/{templateId}",
+      "POST /templates/admin/{templateId}/toggle-featured",
+      "POST /templates/admin/{templateId}/archive",
+      "POST /templates/admin/{templateId}/activate",
+      "POST /templates/admin/batch-upload",
+      "POST /api/webhooks/auth0/user-registration",
+      "POST /api/webhooks/auth0/user-login",
+      "POST /api/webhooks/auth0/user-update",
+      "POST /api/webhooks/auth0/user-deletion",
+      "POST /api/webhooks/ai/generation",
+      "POST /api/webhooks/ai/openai",
+      "POST /api/webhooks/ai/ideogram",
+      "POST /api/webhooks/slack",
+      "GET /api/webhooks/health"
+    ]
+  },
+  "recommendations": [
+    "Fix failing endpoints to improve API reliability",
+    "Review warnings to improve documentation accuracy",
+    "Provide TEST_JWT_TOKEN environment variable for comprehensive authentication testing",
+    "Provide ADMIN_JWT_TOKEN environment variable for admin endpoint testing"
+  ]
+}

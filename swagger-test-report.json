@@ -1,0 +1,16 @@
+{
+  "timestamp": "2025-07-30T04:05:31.227Z",
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "successRate": "100.00"
+  },
+  "errors": [],
+  "configuration": {
+    "baseUrl": "http://localhost:4000",
+    "hasTestToken": false,
+    "hasAdminToken": false
+  }
+}
