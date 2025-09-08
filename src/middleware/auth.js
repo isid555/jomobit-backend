@@ -53,7 +53,9 @@ const checkRequiredPermissions = (requiredPermissions) => {
  * @returns {Function} Express middleware
  */
 const checkRequiredRoles = (requiredRoles) => {
+
   return (req, res, next) => {
+
     try {
       const userRoles = req.auth?.['https://jomobit.com/roles'] || [];
       const requiredRolesList = Array.isArray(requiredRoles) 
@@ -84,7 +86,9 @@ const checkRequiredRoles = (requiredRoles) => {
     } catch (error) {
       next(error);
     }
+
   };
+
 };
 
 /**
@@ -120,19 +124,22 @@ const optionalAuth = (req, res, next) => {
  */
 const extractUserInfo = (req, res, next) => {
   try {
+
+    // console.log("Request quth object: ", req.auth);
     if (req.auth) {
       req.user = {
-        id: req.auth.sub,
-        email: req.auth['https://jomobit.com/email'] || req.auth.email,
-        name: req.auth['https://jomobit.com/name'] || req.auth.name,
-        picture: req.auth['https://jomobit.com/picture'] || req.auth.picture,
-        roles: req.auth['https://jomobit.com/roles'] || [],
-        permissions: req.auth.permissions || [],
-        emailVerified: req.auth.email_verified || false
+        id: req.auth.payload.sub,
+        userId: req.auth.payload.mongoUserId,
+        email: req.auth.payload['https://jomobit.com/email'] || req.auth.email,
+        name: req.auth.payload['https://jomobit.com/name'] || req.auth.name,
+        picture: req.auth.payload['https://jomobit.com/picture'] || req.auth.picture,
+        roles: req.auth.payload['https://jomobit.com/roles'] || [],
+        permissions: req.auth.payload.permissions || [],
+        emailVerified: req.auth.payload.email_verified || false
       };
 
       logger.debug('User authenticated', {
-        userId: req.user.id,
+        userId: req.user.userId,
         email: req.user.email,
         roles: req.user.roles,
         endpoint: req.path

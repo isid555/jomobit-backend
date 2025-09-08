@@ -36,6 +36,8 @@ class GenerationService {
         this.defaultCreditsRequired = options.defaultCreditsRequired || 1;
         this.maxRetries = options.maxRetries || 3;
         this.webhookTimeout = options.webhookTimeout || 300000; // 5 minutes
+        // 👇 add it here so it starts as "false"
+        this.hasLoadedOnce = false;
     }
 
     /**
@@ -77,6 +79,8 @@ class GenerationService {
             // Validate input data
             await this.validateGenerationRequest(userId, profileId, templateId, aiProvider);
 
+            logger.info("AI Providers: ", aiProvider);
+
             // Reserve credits before creating job
             const job = await GenerationJob.createJob({
                 userId,
@@ -100,12 +104,26 @@ class GenerationService {
                 }
             );
 
+
+
             logger.info('Generation job created successfully', {
                 jobId: job._id,
                 userId,
                 creditsReserved: creditsRequired,
                 availableCredits: creditReservation.availableCredits
             });
+
+                    // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
+            setImmediate(() => {
+                this.processGenerationJob(job._id.toString()).catch(error => {
+                    logger.error('Background processing failed', {
+                        jobId: job._id,
+                        error: error.message,
+                        stack: error.stack
+                    });
+                });
+            });
+
 
             return {
                 success: true,
@@ -179,24 +197,21 @@ class GenerationService {
             // Update job with external job ID for webhook tracking
             if (imageResult.externalJobId) {
                 job.externalJobId = imageResult.externalJobId;
+                job.result.imageUrl = imageResult.imageUrl;
+                job.result.metadata = imageResult.metadata;
+                job.status = imageResult.status;
                 await job.save();
             }
 
-            logger.info('Generation job processing initiated', {
+            logger.info('Generation job processing completed', {
                 jobId,
+                status: imageResult.status,
                 promptGenerated: !!promptResult.prompt,
                 externalJobId: imageResult.externalJobId,
                 provider: job.aiProvider
             });
 
-            return {
-                success: true,
-                jobId,
-                status: 'processing',
-                prompt: promptResult.prompt,
-                externalJobId: imageResult.externalJobId,
-                message: 'Generation processing initiated successfully'
-            };
+            await this.handleGenerationSuccess(job, imageResult);
 
         } catch (error) {
             logger.error('Error processing generation job', {
@@ -217,6 +232,7 @@ class GenerationService {
      * @returns {Promise<Object>} Generated prompt and parameters
      */
     async generatePrompt(job) {
+
         const startTime = Date.now();
 
         try {
@@ -224,7 +240,9 @@ class GenerationService {
                 jobId: job._id,
                 llmProvider: job.aiProvider.llm,
                 profileName: job.profileId.name,
-                templateName: job.templateId.name
+                templateName: job.templateId.name,
+                template: job.templateId,
+                profile: job.profileId
             });
 
             // Create LLM provider instance
@@ -297,6 +315,8 @@ class GenerationService {
             // Prepare generation parameters based on template
             const parameters = this.prepareImageParameters(job.templateId);
 
+            logger.info("Parameters before image generation: ", parameters);
+
             // Generate image
             const result = await diffusionProvider.generateImage(prompt, parameters);
 
@@ -316,6 +336,8 @@ class GenerationService {
 
             return {
                 externalJobId: result.jobId,
+                imageUrl: result.imageUrl,
+                metadata: result.metadata,
                 status: result.status,
                 parameters,
                 provider: job.aiProvider.diffusion
@@ -410,19 +432,19 @@ class GenerationService {
 
         try {
             // Process and store image via ImageKit
-            const imageResult = await this.processGeneratedImage(result, job);
+            // const imageResult = await this.processGeneratedImage(result, job);
 
             // Complete the job
-            await job.complete({
-                imageUrl: imageResult.url,
-                imagekitFileId: imageResult.fileId,
-                thumbnailUrl: imageResult.thumbnailUrl,
-                metadata: {
-                    ...result,
-                    imagekit: imageResult,
-                    processedAt: new Date()
-                }
-            });
+            // await job.complete({
+            //     imageUrl: imageResult.url,
+            //     imagekitFileId: imageResult.fileId,
+            //     thumbnailUrl: imageResult.thumbnailUrl,
+            //     metadata: {
+            //         ...result,
+            //         imagekit: imageResult,
+            //         processedAt: new Date()
+            //     }
+            // });
 
             // Deduct reserved credits
             await this.creditService.deductReservedCredits(
@@ -431,7 +453,7 @@ class GenerationService {
                 job.creditsReserved,
                 {
                     completedAt: new Date(),
-                    imageUrl: imageResult.url,
+                    imageUrl: result.imageUrl,
                     provider: job.aiProvider
                 }
             );
@@ -439,7 +461,7 @@ class GenerationService {
             logger.info('Generation completed successfully', {
                 jobId: job._id,
                 userId: job.userId,
-                imageUrl: imageResult.url,
+                imageUrl: result.imageUrl,
                 creditsDeducted: job.creditsReserved
             });
 
@@ -448,8 +470,8 @@ class GenerationService {
                 jobId: job._id,
                 status: 'completed',
                 result: {
-                    imageUrl: imageResult.url,
-                    thumbnailUrl: imageResult.thumbnailUrl
+                    imageUrl: result.imageUrl,
+                    thumbnailUrl: result.imageUrl,
                 },
                 creditsDeducted: job.creditsReserved,
                 message: 'Generation completed successfully'
@@ -638,6 +660,8 @@ class GenerationService {
         const availableLLM = providerFactory.getAvailableLLMProviders();
         const availableDiffusion = providerFactory.getAvailableDiffusionProviders();
 
+        
+
         if (!availableLLM.includes(aiProvider.llm)) {
             throw new GenerationValidationError(
                 `Invalid LLM provider: ${aiProvider.llm}. Available: ${availableLLM.join(', ')}`,
@@ -645,6 +669,10 @@ class GenerationService {
                 aiProvider.llm
             );
         }
+
+        logger.info("Available Diffusion Provider: ", availableDiffusion);
+        logger.info("Given provider: ", aiProvider.diffusion);
+        logger.info("-----------xxxxxx----------------------")
 
         if (!availableDiffusion.includes(aiProvider.diffusion)) {
             throw new GenerationValidationError(
@@ -675,7 +703,8 @@ class GenerationService {
             size: `${template.aspectRatio.width}x${template.aspectRatio.height}`,
             quality: 'high',
             style: template.type === 'social' ? 'vibrant' : 'professional',
-            format: 'png'
+            format: 'png',
+            image: template.images.fullSize
         };
 
         // Add template-specific parameters

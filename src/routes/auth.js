@@ -4,6 +4,67 @@ const authController = require('../controllers/authController');
 
 const router = express.Router();
 
+
+/**
+ * @swagger
+ * /api/auth/sync/register:
+ *   post:
+ *     summary: Sync user registration from Auth0 (Actions only)
+ *     tags: [Auth0 Sync]
+ *     security:
+ *       - apiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               auth0User:
+ *                 type: object
+ *                 description: Auth0 user object
+ *     responses:
+ *       201:
+ *         description: User created successfully
+ *       200:
+ *         description: Identity linked to existing user
+ *       401:
+ *         description: Unauthorized - Invalid API secret
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/sync/register', authController.syncUserRegistration);
+
+/**
+ * @swagger
+ * /api/auth/sync/login:
+ *   post:
+ *     summary: Sync user login from Auth0 (Actions only)
+ *     tags: [Auth0 Sync]
+ *     security:
+ *       - apiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               auth0User:
+ *                 type: object
+ *                 description: Auth0 user object
+ *     responses:
+ *       200:
+ *         description: User updated successfully
+ *       401:
+ *         description: Unauthorized - Invalid API secret
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/sync/login', authController.syncUserLogin);
+
 /**
  * @swagger
  * /api/auth/me:

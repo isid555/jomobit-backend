@@ -8,6 +8,24 @@ const logger = require('../utils/logger');
 class TemplateController {
   constructor() {
     this.templateService = new TemplateService();
+
+    // Bind all methods to preserve 'this' context
+    this.getTemplates = this.getTemplates.bind(this);
+    this.searchTemplates = this.searchTemplates.bind(this);
+    this.getFilterOptions = this.getFilterOptions.bind(this);
+    this.getTemplateById = this.getTemplateById.bind(this);
+    this.getFeaturedTemplates = this.getFeaturedTemplates.bind(this);
+    this.getPopularTemplates = this.getPopularTemplates.bind(this);
+    this.getRecentTemplates = this.getRecentTemplates.bind(this);
+    this.createTemplate = this.createTemplate.bind(this);
+    this.updateTemplate = this.updateTemplate.bind(this);
+    this.deleteTemplate = this.deleteTemplate.bind(this);
+    this.toggleFeatured = this.toggleFeatured.bind(this);
+    this.archiveTemplate = this.archiveTemplate.bind(this);
+    this.activateTemplate = this.activateTemplate.bind(this);
+    this.batchUploadTemplates = this.batchUploadTemplates.bind(this);
+    this.getTemplateStats = this.getTemplateStats.bind(this);
+    this.getAdminTemplates = this.getAdminTemplates.bind(this);
   }
 
   /**

@@ -72,7 +72,7 @@ const rateLimitConfigs = {
   // General API endpoints
   general: createRateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100,
+    max: 1000,
     message: 'Too many requests from this IP, please try again later.'
   }),
 

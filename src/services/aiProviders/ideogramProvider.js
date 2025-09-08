@@ -1,5 +1,7 @@
 const DiffusionProvider = require('./diffusionProvider');
 
+const logger = require('../../utils/logger');
+
 /**
  * Ideogram Diffusion Provider
  * Implements Ideogram-based image generation
@@ -8,7 +10,7 @@ class IdeogramDiffusionProvider extends DiffusionProvider {
   constructor(config = {}) {
     super(config);
     this.apiKey = config.apiKey || process.env.IDEOGRAM_API_KEY;
-    this.baseURL = 'https://api.ideogram.ai/v1';
+    this.baseURL = 'https://api.ideogram.ai';
 
     if (!this.apiKey) {
       throw new Error('Ideogram API key is required');
@@ -26,26 +28,52 @@ class IdeogramDiffusionProvider extends DiffusionProvider {
       const validatedParams = this.validateParameters(parameters);
       const enhancedPrompt = this.enhancePrompt(prompt, validatedParams);
 
-      const response = await this.makeAPICall('/generate', {
+      // Build the request object, only including non-null optional fields
+      const imageRequest = {
         prompt: enhancedPrompt,
         aspect_ratio: this.convertSizeToAspectRatio(validatedParams.size),
         model: parameters.model || 'V_2',
         magic_prompt_option: parameters.magicPrompt || 'AUTO',
-        seed: parameters.seed || null,
-        style_type: this.mapStyleType(validatedParams.style),
-        negative_prompt: parameters.negativePrompt || null
+        style_type: this.mapStyleType(validatedParams.style)
+      };
+
+      // Only add optional fields if they have valid values
+      if (parameters.seed !== undefined && parameters.seed !== null) {
+        imageRequest.seed = parameters.seed;
+      }
+
+      if (parameters.negativePrompt && parameters.negativePrompt.trim() !== '') {
+        imageRequest.negative_prompt = parameters.negativePrompt;
+      }
+
+      // Fix: Wrap request in image_request object as per API documentation
+      const response = await this.makeAPICall('/generate', {
+        image_request: imageRequest
       });
 
-      // Ideogram returns a job ID for async processing
-      return {
-        jobId: response.request_id,
-        status: 'processing',
-        metadata: {
-          model: parameters.model || 'V_2',
-          aspectRatio: this.convertSizeToAspectRatio(validatedParams.size),
-          styleType: this.mapStyleType(validatedParams.style)
-        }
-      };
+      logger.info("Response: ", response);
+
+      // For the legacy /generate endpoint, images are returned immediately
+      // Check if we have data array with generated images
+      if (response.data && response.data.length > 0) {
+        const imageData = response.data[0];
+        return {
+          jobId: `sync_${Date.now()}`, // Create a synthetic job ID for consistency
+          status: 'completed',
+          imageUrl: imageData.url,
+          metadata: {
+            model: parameters.model || 'V_2',
+            aspectRatio: this.convertSizeToAspectRatio(validatedParams.size),
+            styleType: this.mapStyleType(validatedParams.style),
+            seed: imageData.seed,
+            isPublic: imageData.is_public || false,
+            resolution: imageData.resolution,
+            isImageSafe: imageData.is_image_safe
+          }
+        };
+      } else {
+        throw new Error('No image data returned from Ideogram API');
+      }
     } catch (error) {
       throw new Error(`Ideogram image generation failed: ${error.message}`);
     }
@@ -53,36 +81,23 @@ class IdeogramDiffusionProvider extends DiffusionProvider {
 
   /**
    * Get job status from Ideogram
-   * @param {string} jobId - The Ideogram request ID
+   * Note: The legacy /generate endpoint is synchronous, so this method
+   * is mainly for compatibility with the async interface
+   * @param {string} jobId - The job ID
    * @returns {Promise<Object>} Job status and result data
    */
   async getJobStatus(jobId) {
-    try {
-      const response = await this.makeAPICall(`/retrieve/${jobId}`, null, 'GET');
-
-      const status = this.mapIdeogramStatus(response.status);
-
-      const result = {
+    // For synchronous generations, we can't really check status
+    // This is mainly here for interface compatibility
+    if (jobId.startsWith('sync_')) {
+      return {
         jobId,
-        status,
-        message: response.message || null
+        status: 'completed',
+        message: 'Synchronous generation completed immediately'
       };
-
-      if (status === 'completed' && response.data && response.data.length > 0) {
-        result.imageUrl = response.data[0].url;
-        result.metadata = {
-          seed: response.data[0].seed,
-          isPublic: response.data[0].is_public,
-          safetyScore: response.data[0].safety_score
-        };
-      } else if (status === 'failed') {
-        result.error = response.message || 'Generation failed';
-      }
-
-      return result;
-    } catch (error) {
-      throw new Error(`Failed to get Ideogram job status: ${error.message}`);
     }
+    
+    throw new Error('Job status checking not supported for legacy synchronous endpoint');
   }
 
   /**
@@ -101,10 +116,10 @@ class IdeogramDiffusionProvider extends DiffusionProvider {
     return {
       ...super.getCapabilities(),
       supportedSizes: ['1:1', '16:10', '10:16', '16:9', '9:16', '3:2', '2:3'],
-      supportedModels: ['V_2', 'V_1'],
+      supportedModels: ['V_2', 'V_1', 'V_2_TURBO', 'V_1_TURBO'],
       supportedStyles: ['GENERAL', 'REALISTIC', 'DESIGN', 'RENDER_3D', 'ANIME'],
       maxPromptLength: 2000,
-      isAsynchronous: true,
+      isAsynchronous: false, // Legacy endpoint is synchronous
       supportsMagicPrompt: true,
       supportsNegativePrompt: true
     };
@@ -113,22 +128,22 @@ class IdeogramDiffusionProvider extends DiffusionProvider {
   /**
    * Convert size format to Ideogram aspect ratio
    * @param {string} size - Size in format '1024x1024'
-   * @returns {string} Aspect ratio in format '1:1'
+   * @returns {string} Aspect ratio in format 'ASPECT_1_1'
    */
   convertSizeToAspectRatio(size) {
     const sizeMap = {
-      '1024x1024': '1:1',
-      '1024x768': '4:3',
-      '768x1024': '3:4',
-      '1920x1080': '16:9',
-      '1080x1920': '9:16',
-      '1600x1000': '16:10',
-      '1000x1600': '10:16',
-      '1536x1024': '3:2',
-      '1024x1536': '2:3'
+      '1024x1024': 'ASPECT_1_1',
+      '1024x768': 'ASPECT_4_3',
+      '768x1024': 'ASPECT_3_4',
+      '1920x1080': 'ASPECT_16_9',
+      '1080x1920': 'ASPECT_9_16',
+      '1600x1000': 'ASPECT_16_10',
+      '1000x1600': 'ASPECT_10_16',
+      '1536x1024': 'ASPECT_3_2',
+      '1024x1536': 'ASPECT_2_3'
     };
 
-    return sizeMap[size] || '1:1';
+    return sizeMap[size] || 'ASPECT_1_1';
   }
 
   /**
@@ -148,23 +163,6 @@ class IdeogramDiffusionProvider extends DiffusionProvider {
     };
 
     return styleMap[style] || 'GENERAL';
-  }
-
-  /**
-   * Map Ideogram status to standard status
-   * @param {string} ideogramStatus - Ideogram status
-   * @returns {string} Standard status
-   */
-  mapIdeogramStatus(ideogramStatus) {
-    const statusMap = {
-      'pending': 'processing',
-      'processing': 'processing',
-      'completed': 'completed',
-      'failed': 'failed',
-      'success': 'completed'
-    };
-
-    return statusMap[ideogramStatus] || 'processing';
   }
 
   /**
@@ -197,8 +195,6 @@ class IdeogramDiffusionProvider extends DiffusionProvider {
    * @returns {Promise<Object>} API response
    */
   async makeAPICall(endpoint, data, method = 'POST') {
-    const fetch = require('node-fetch');
-
     const options = {
       method,
       headers: {
@@ -213,13 +209,18 @@ class IdeogramDiffusionProvider extends DiffusionProvider {
 
     const response = await fetch(`${this.baseURL}${endpoint}`, options);
 
+    console.log("Response status:", response.status);
+    console.log("Response headers:", [...response.headers.entries()]);
+
     if (!response.ok) {
       let errorMessage = `Ideogram API request failed: ${response.status}`;
       try {
         const error = await response.json();
-        errorMessage = error.message || error.error || errorMessage;
+        console.log("Error response body:", error);
+        errorMessage = error.detail || error.message || error.error || errorMessage;
       } catch (e) {
         // If we can't parse the error response, use the default message
+        console.log("Could not parse error response");
       }
       throw new Error(errorMessage);
     }

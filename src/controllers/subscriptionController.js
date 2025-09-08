@@ -8,6 +8,19 @@ const logger = require('../utils/logger');
 class SubscriptionController {
   constructor() {
     this.subscriptionService = new SubscriptionService();
+    
+    // Bind all methods that use 'this' to preserve context
+    this.getCurrentSubscription = this.getCurrentSubscription.bind(this);
+    this.getSubscriptionHistory = this.getSubscriptionHistory.bind(this);
+    this.upgradeSubscription = this.upgradeSubscription.bind(this);
+    this.cancelSubscription = this.cancelSubscription.bind(this);
+    this.getBillingHistory = this.getBillingHistory.bind(this);
+    this.getAvailablePlans = this.getAvailablePlans.bind(this);
+    this.getPlanById = this.getPlanById.bind(this);
+    this.processRazorpayWebhook = this.processRazorpayWebhook.bind(this);
+    this.getSubscriptionAnalytics = this.getSubscriptionAnalytics.bind(this);
+    this.getAdminSubscriptions = this.getAdminSubscriptions.bind(this);
+    this.processScheduledCancellations = this.processScheduledCancellations.bind(this);
   }
 
   /**
@@ -309,7 +322,7 @@ class SubscriptionController {
   async getAvailablePlans(req, res) {
     try {
       const Plan = require('../models/Plan');
-      const plans = await Plan.getActivePlans();
+      const plans = await Plan.getPublicPlans();
 
       res.json({
         success: true,
@@ -359,8 +372,6 @@ class SubscriptionController {
       });
     }
   }
-
-  // Webhook endpoints (handled by WebhookController, but included here for completeness)
 
   /**
    * Process Razorpay subscription webhook
@@ -432,8 +443,6 @@ class SubscriptionController {
       });
     }
   }
-
-  // Admin endpoints
 
   /**
    * Get subscription analytics (Admin only)

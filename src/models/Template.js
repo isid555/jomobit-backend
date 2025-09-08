@@ -18,7 +18,6 @@ const templateSchema = new mongoose.Schema({
   description: {
     type: String,
     trim: true,
-    maxlength: 500
   },
   
   // Template category

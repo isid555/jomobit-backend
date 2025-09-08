@@ -86,7 +86,7 @@ class ProfileService {
         plan: freePlan,
         planName: freePlan?.name || 'Free',
         planId: freePlan?.planId || 'free',
-        profileLimit: freePlan?.features.businessProfiles.limit || BusinessProfile.PLAN_LIMITS.free
+        profileLimit: 3 || freePlan?.features.businessProfiles.limit || BusinessProfile.PLAN_LIMITS.free
       };
 
     } catch (error) {

@@ -22,6 +22,19 @@ const userSchema = new mongoose.Schema({
     trim: true,
     index: true
   },
+
+  identities: [{
+    provider: String,        // 'auth0', 'google-oauth2', 'facebook', etc.
+    user_id: String,        // Provider-specific user ID  
+    connection: String,     // Auth0 connection name
+    isSocial: Boolean      // true for social logins
+  }],
+
+  // Track which identity was used for creation
+  primaryIdentity: {
+    provider: String,
+    connection: String
+  },
   
   // User status
   status: {
@@ -129,7 +142,7 @@ userSchema.statics = {
    */
   async createOrUpdateFromAuth0(auth0User) {
     const userData = {
-      auth0Id: auth0User.user_id,
+      auth0Id: auth0User.auth0Id,
       email: auth0User.email?.toLowerCase(),
       emailVerified: auth0User.email_verified || false,
       status: auth0User.email_verified ? 'active' : 'pending',

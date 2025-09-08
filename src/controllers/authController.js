@@ -18,6 +18,182 @@ class AuthController {
     this.suspendUser = this.suspendUser.bind(this);
     this.activateUser = this.activateUser.bind(this);
     this.getUserStats = this.getUserStats.bind(this);
+    this.syncUserRegistration = this.syncUserRegistration.bind(this);
+    this.syncUserLogin = this.syncUserLogin.bind(this);
+  }
+
+
+  /**
+   * Create user from Auth0 registration
+   * POST /api/auth/sync/register
+   * Called by Auth0 Post-Registration Action
+   */
+  async syncUserRegistration(req, res) {
+    try {
+      // Validate API secret (not user JWT)
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${process.env.AUTH0_ACTIONS_SECRET}`) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized - Invalid API secret'
+        });
+      }
+
+      const { auth0User } = req.body;
+      
+      // Extract identity information for new fields
+      const identities = auth0User.identities || [];
+      const primaryIdentity = identities[0] || {};
+
+      // Create user with identities
+      const userData = {
+        auth0Id: auth0User.user_id,
+        email: auth0User.email?.toLowerCase(),
+        emailVerified: auth0User.email_verified || false,
+        status: auth0User.email_verified ? 'active' : 'pending',
+        
+        // New identity fields
+        identities: identities.map(identity => ({
+          provider: identity.provider,
+          user_id: identity.user_id,
+          connection: identity.connection,
+          isSocial: identity.provider !== 'auth0'
+        })),
+        
+        primaryIdentity: {
+          provider: primaryIdentity.provider,
+          connection: primaryIdentity.connection
+        },
+        
+        metadata: {
+          name: auth0User.name,
+          given_name: auth0User.given_name,
+          family_name: auth0User.family_name,
+          nickname: auth0User.nickname,
+          picture: auth0User.picture,
+          // locale: auth0User.locale,
+          updated_at: new Date()
+        },
+        // roles: auth0User['https://jomobit.com/roles'] || ['user'],
+        // permissions: auth0User.permissions || [],
+        lastSyncAt: new Date()
+      };
+
+      // Check for existing user by email first (prevent duplicates)
+      let existingUser = await this.userService.getUserByEmail(auth0User.email);
+      
+      if (existingUser) {
+        // Update existing user with new Auth0 identity
+        // const updatedUser = await this.userService.addIdentityToUser(
+        //   existingUser._id, 
+        //   userData
+        // );
+        
+        // logger.info('User identity linked to existing account', {
+        //   userId: updatedUser._id,
+        //   email: updatedUser.email,
+        //   newProvider: primaryIdentity.provider
+        // });
+
+        // return res.json({
+        //   success: true,
+        //   message: 'Identity linked to existing user',
+        //   user: updatedUser,
+        //   action: 'linked'
+        // });
+
+
+        // return {
+        //   success: true,
+        //   user: user.toObject(),
+        //   isNewUser,
+        //   creditResult,
+        //   message: isNewUser ? 'User created successfully' : 'User updated successfully'
+        // };
+
+        return res.status(201).json({
+          success: true,
+          message: 'User already exists - using existing account',
+          user: existingUser.toObject(),
+          action: 'existing'
+        });
+
+      }
+
+      // Create new user
+      const newUser = await this.userService.createOrUpdateFromAuth0(userData);
+      
+      logger.info('New user created from Auth0 registration', {
+        userId: newUser._id,
+        auth0Id: newUser.auth0Id,
+        email: newUser.email,
+        provider: primaryIdentity.provider
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'User created successfully',
+        user: newUser.user,
+        action: 'created'
+      });
+
+    } catch (error) {
+      logger.error('Error syncing user registration:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: 'Failed to sync user registration'
+      });
+    }
+  }
+
+  /**
+   * Update user on login
+   * POST /api/auth/sync/login  
+   * Called by Auth0 Post-Login Action
+   */
+  async syncUserLogin(req, res) {
+    try {
+      // Validate API secret
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${process.env.AUTH0_ACTIONS_SECRET}`) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized - Invalid API secret'
+        });
+      }
+
+      const { auth0User } = req.body;
+      
+      const result = await this.userService.createOrUpdateFromAuth0(auth0User);
+      
+      res.json({
+        success: true,
+        message: 'User updated successfully',
+        user: result.user
+      });
+
+    } catch (error) {
+      if (error.name === 'UserNotFoundError') {
+        // User doesn't exist - this shouldn't happen if registration works
+        logger.warn('User not found during login sync', {
+          auth0Id: req.body.auth0User?.user_id
+        });
+        
+        return res.status(404).json({
+          success: false,
+          error: 'User not found',
+          message: 'User not found in database'
+        });
+      }
+
+      logger.error('Error syncing user login:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: 'Failed to sync user login'
+      });
+    }
   }
 
   /**
@@ -26,12 +202,13 @@ class AuthController {
    */
   async getCurrentUser(req, res) {
     try {
-      const { id: auth0Id } = req.user;
+      const { userId: id } = req.user;
 
       console.log("Middleware breached entered service");
-      // console.log("Auth Id: ", id);
+      
+   
 
-      const result = await this.userService.getUserByAuth0Id(auth0Id);
+      const result = await this.userService.getUserById(id);
 
       res.json({
         success: true,
@@ -78,9 +255,13 @@ class AuthController {
    */
   async updateLastLogin(req, res) {
     try {
-      const { id: auth0Id } = req.user;
+      const { userId: id } = req.user;
 
-      const result = await this.userService.updateLastLogin(auth0Id);
+      console.log("Middleware breached entered service");
+      
+   
+
+      const result = await this.userService.getUserById(id);
 
       logger.info('User login timestamp updated', {
         userId: result.user._id,
@@ -119,9 +300,13 @@ class AuthController {
    */
   async getUserPermissions(req, res) {
     try {
-      const { id: auth0Id } = req.user;
+      const { userId: id } = req.user;
 
-      const result = await this.userService.getUserByAuth0Id(auth0Id);
+      console.log("Middleware breached entered service");
+      
+   
+
+      const result = await this.userService.getUserById(id);
 
       res.json({
         success: true,
@@ -156,13 +341,16 @@ class AuthController {
    */
   async getUserProfile(req, res) {
     try {
-      const { id: auth0Id } = req.user;
-
-      // Get user by Auth0 ID first
-      const userResult = await this.userService.getUserByAuth0Id(auth0Id);
       
+      const { userId: id } = req.user;
+
+      console.log("Middleware breached entered service");
+      
+   
+
+      const userResult = await this.userService.getUserById(id);
       // Get user with credits
-      const result = await this.userService.getUserWithCredits(userResult.user._id);
+      const result = await this.userService.getUserWithCredits(id);
 
       res.json({
         success: true,

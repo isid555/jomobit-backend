@@ -38,6 +38,7 @@ class UserOperationError extends Error {
  * User Management Service
  * Handles user lifecycle management and Auth0 integration
  */
+
 class UserService {
   constructor(options = {}) {
     this.creditService = options.creditService || new CreditService();
@@ -54,7 +55,7 @@ class UserService {
     
     try {
       logger.info('Processing Auth0 user data', {
-        auth0Id: auth0User.user_id,
+        auth0Id: auth0User.auth0Id,
         email: auth0User.email,
         operation: 'createOrUpdateFromAuth0'
       });
@@ -115,6 +116,73 @@ class UserService {
       );
     }
   }
+
+
+    /**
+   * Add new identity to existing user (for account linking)
+   * @param {string|ObjectId} userId - User ID
+   * @param {Object} newUserData - New identity data from Auth0
+   * @returns {Promise<Object>} Updated user
+   */
+    async addIdentityToUser(userId, newUserData) {
+      try {
+        logger.info('Adding identity to existing user', {
+          userId,
+          newAuth0Id: newUserData.auth0Id,
+          newProvider: newUserData.primaryIdentity?.provider
+        });
+  
+        // Update user with new identity information
+        const updatedUser = await User.findByIdAndUpdate(
+          userId,
+          {
+            $set: {
+              auth0Id: newUserData.auth0Id, // Update to latest Auth0 ID
+              metadata: { ...newUserData.metadata },
+              lastSyncAt: new Date(),
+              emailVerified: newUserData.emailVerified || true,
+              status: 'active' // Activate user when linking social account
+            },
+            $addToSet: {
+              identities: { $each: newUserData.identities || [] }
+            }
+          },
+          { 
+            new: true, 
+            runValidators: true 
+          }
+        );
+  
+        if (!updatedUser) {
+          throw new UserNotFoundError(userId);
+        }
+  
+        logger.info('Identity added to existing user successfully', {
+          userId: updatedUser._id,
+          auth0Id: updatedUser.auth0Id,
+          totalIdentities: updatedUser.identities?.length || 0
+        });
+  
+        return updatedUser.toObject();
+  
+      } catch (error) {
+        if (error instanceof UserNotFoundError) {
+          throw error;
+        }
+  
+        logger.error('Error adding identity to user', {
+          userId,
+          newAuth0Id: newUserData.auth0Id,
+          error: error.message
+        });
+  
+        throw new UserOperationError(
+          `Failed to add identity to user: ${error.message}`,
+          'addIdentityToUser',
+          userId
+        );
+      }
+    }
 
   /**
    * Handle user status update from Auth0 webhooks
@@ -226,32 +294,33 @@ class UserService {
    * @returns {Promise<Object>} User data
    */
   async getUserByEmail(email) {
-    try {
+    // try {
       const user = await User.findByEmail(email);
-      if (!user) {
-        throw new UserNotFoundError(email);
-      }
+      return user;
+      // if (!user) {
+      //   throw new UserNotFoundError(email);
+      // }
 
-      return {
-        success: true,
-        user: user.toObject()
-      };
+      // return {
+      //   success: true,
+      //   user: user.toObject()
+      // };
 
-    } catch (error) {
-      if (error instanceof UserNotFoundError) {
-        throw error;
-      }
+    // } catch (error) {
+      // if (error instanceof UserNotFoundError) {
+      //   throw error;
+      // }
 
-      logger.error('Error getting user by email', {
-        email,
-        error: error.message
-      });
-      throw new UserOperationError(
-        `Failed to get user: ${error.message}`,
-        'getUserByEmail',
-        email
-      );
-    }
+      // logger.error('Error getting user by email', {
+      //   email,
+      //   error: error.message
+      // });
+      // throw new UserOperationError(
+      //   `Failed to get user: ${error.message}`,
+      //   'getUserByEmail',
+      //   email
+      // );
+    // }
   }
 
   /**

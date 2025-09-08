@@ -59,7 +59,7 @@ class App {
           return callback(null, true);
         }
 
-        const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001').split(',');
+        const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:4040').split(',');
         
         // Check if origin is in allowed list
         if (allowedOrigins.includes(origin)) {

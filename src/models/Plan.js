@@ -254,6 +254,16 @@ planSchema.statics = {
       .exec();
   },
 
+    /**
+   * Get all active public plans (alias for getPublicPlans)
+   * @param {Object} options - Query options
+   * @returns {Promise<Plan[]>} Active plans
+   */
+  async getActivePlans(options = {}) {
+    return this.getPublicPlans(options);
+  },
+
+
   /**
    * Get plan by plan ID
    * @param {string} planId - Plan identifier

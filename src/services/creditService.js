@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 /**
  * Custom error classes for credit operations
  */
+
 class CreditInsufficientError extends Error {
   constructor(required, available) {
     super(`Insufficient credits: required ${required}, available ${available}`);
@@ -139,7 +140,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction.createTransaction({
+    const transaction = await CreditTransaction({
       userId,
       type: 'grant',
       amount,
@@ -411,7 +412,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction.createTransaction({
+    const transaction = await CreditTransaction({
       userId,
       type: 'reserve',
       amount,
@@ -594,7 +595,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction.createTransaction({
+    const transaction = await CreditTransaction({
       userId,
       type: 'deduct',
       amount: -amount, // Negative for deduction
@@ -717,6 +718,7 @@ class CreditService {
       'reference.id': jobId
     });
     const reservationTransaction = session ? await reservationQuery.session(session) : await reservationQuery;
+    logger.info("Now here is the bug: ")
 
     if (!reservationTransaction) {
       throw new CreditOperationError(
@@ -725,6 +727,8 @@ class CreditService {
         userId
       );
     }
+
+    logger.info("THis line wont be executed!");
 
     // Check if credits were already released or deducted
     const existingReleaseQuery = CreditTransaction.findOne({
@@ -781,7 +785,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction.createTransaction({
+    const transaction = await CreditTransaction({
       userId,
       type: 'release',
       amount,

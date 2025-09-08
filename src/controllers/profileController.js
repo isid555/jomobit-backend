@@ -8,6 +8,17 @@ const logger = require('../utils/logger');
 class ProfileController {
   constructor() {
     this.profileService = new ProfileService();
+        // Bind all methods to preserve 'this' context
+        this.createProfile = this.createProfile.bind(this);
+        this.getUserProfiles = this.getUserProfiles.bind(this);
+        this.getProfileById = this.getProfileById.bind(this);
+        this.updateProfile = this.updateProfile.bind(this);
+        this.deactivateProfile = this.deactivateProfile.bind(this);
+        this.activateProfile = this.activateProfile.bind(this);
+        this.searchProfiles = this.searchProfiles.bind(this);
+        this.getProfileGenerationSummary = this.getProfileGenerationSummary.bind(this);
+      
+    
   }
 
   /**

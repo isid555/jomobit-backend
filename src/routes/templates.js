@@ -704,9 +704,9 @@ router.get('/:templateId', templateController.getTemplateById);
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-router.post('/admin', authenticate, requireAdmin(), templateController.createTemplate);
-router.get('/admin', authenticate, requireAdmin(), templateController.getAdminTemplates);
-router.get('/admin/stats', authenticate, requireAdmin(), templateController.getTemplateStats);
+router.post('/admin', authenticate,  templateController.createTemplate);
+router.get('/admin', authenticate, templateController.getAdminTemplates);
+router.get('/admin/stats', authenticate, templateController.getTemplateStats);
 router.put('/admin/:templateId', authenticate, requireAdmin(), templateController.updateTemplate);
 router.delete('/admin/:templateId', authenticate, requireAdmin(), templateController.deleteTemplate);
 router.post('/admin/:templateId/toggle-featured', authenticate, requireAdmin(), templateController.toggleFeatured);
