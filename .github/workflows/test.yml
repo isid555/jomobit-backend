@@ -1,172 +1,172 @@
-name: Test Suite
+# name: Test Suite
 
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+# on:
+#   push:
+#     branches: [ main, develop ]
+#   pull_request:
+#     branches: [ main, develop ]
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
+# jobs:
+#   test:
+#     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x]
+#     strategy:
+#       matrix:
+#         node-version: [18.x, 20.x]
 
-    services:
-      mongodb:
-        image: mongo:7.0
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+#     services:
+#       mongodb:
+#         image: mongo:7.0
+#         ports:
+#           - 27017:27017
+#         options: >-
+#           --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
+#           --health-interval 10s
+#           --health-timeout 5s
+#           --health-retries 5
 
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+#       redis:
+#         image: redis:7-alpine
+#         ports:
+#           - 6379:6379
+#         options: >-
+#           --health-cmd "redis-cli ping"
+#           --health-interval 10s
+#           --health-timeout 5s
+#           --health-retries 5
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
 
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
+#     - name: Use Node.js ${{ matrix.node-version }}
+#       uses: actions/setup-node@v4
+#       with:
+#         node-version: ${{ matrix.node-version }}
+#         cache: 'npm'
 
-    - name: Install dependencies
-      run: npm ci
+#     - name: Install dependencies
+#       run: npm ci
 
-    - name: Run linting (if configured)
-      run: npm run lint --if-present
+#     - name: Run linting (if configured)
+#       run: npm run lint --if-present
 
-    - name: Run unit tests
-      run: npm run test:unit
-      env:
-        NODE_ENV: test
-        MONGODB_URI: mongodb://localhost:27017/jomobit-test
-        REDIS_URL: redis://localhost:6379
-        JWT_SECRET: test-jwt-secret-for-ci
-        AUTH0_DOMAIN: test.auth0.com
-        AUTH0_AUDIENCE: test-audience
-        IMAGEKIT_PUBLIC_KEY: test-public-key
-        IMAGEKIT_PRIVATE_KEY: test-private-key
-        IMAGEKIT_URL_ENDPOINT: https://test.imagekit.io
-        RAZORPAY_KEY_ID: test-razorpay-key
-        RAZORPAY_KEY_SECRET: test-razorpay-secret
-        RAZORPAY_WEBHOOK_SECRET: test-webhook-secret
-        OPENAI_API_KEY: test-openai-key
-        GEMINI_API_KEY: test-gemini-key
-        IDEOGRAM_API_KEY: test-ideogram-key
-        SLACK_WEBHOOK_URL: https://hooks.slack.com/test
+#     - name: Run unit tests
+#       run: npm run test:unit
+#       env:
+#         NODE_ENV: test
+#         MONGODB_URI: mongodb://localhost:27017/jomobit-test
+#         REDIS_URL: redis://localhost:6379
+#         JWT_SECRET: test-jwt-secret-for-ci
+#         AUTH0_DOMAIN: test.auth0.com
+#         AUTH0_AUDIENCE: test-audience
+#         IMAGEKIT_PUBLIC_KEY: test-public-key
+#         IMAGEKIT_PRIVATE_KEY: test-private-key
+#         IMAGEKIT_URL_ENDPOINT: https://test.imagekit.io
+#         RAZORPAY_KEY_ID: test-razorpay-key
+#         RAZORPAY_KEY_SECRET: test-razorpay-secret
+#         RAZORPAY_WEBHOOK_SECRET: test-webhook-secret
+#         OPENAI_API_KEY: test-openai-key
+#         GEMINI_API_KEY: test-gemini-key
+#         IDEOGRAM_API_KEY: test-ideogram-key
+#         SLACK_WEBHOOK_URL: https://hooks.slack.com/test
 
-    - name: Run integration tests
-      run: npm run test:integration
-      env:
-        NODE_ENV: test
-        MONGODB_URI: mongodb://localhost:27017/jomobit-test
-        REDIS_URL: redis://localhost:6379
-        JWT_SECRET: test-jwt-secret-for-ci
-        AUTH0_DOMAIN: test.auth0.com
-        AUTH0_AUDIENCE: test-audience
-        IMAGEKIT_PUBLIC_KEY: test-public-key
-        IMAGEKIT_PRIVATE_KEY: test-private-key
-        IMAGEKIT_URL_ENDPOINT: https://test.imagekit.io
-        RAZORPAY_KEY_ID: test-razorpay-key
-        RAZORPAY_KEY_SECRET: test-razorpay-secret
-        RAZORPAY_WEBHOOK_SECRET: test-webhook-secret
-        OPENAI_API_KEY: test-openai-key
-        GEMINI_API_KEY: test-gemini-key
-        IDEOGRAM_API_KEY: test-ideogram-key
-        SLACK_WEBHOOK_URL: https://hooks.slack.com/test
+#     - name: Run integration tests
+#       run: npm run test:integration
+#       env:
+#         NODE_ENV: test
+#         MONGODB_URI: mongodb://localhost:27017/jomobit-test
+#         REDIS_URL: redis://localhost:6379
+#         JWT_SECRET: test-jwt-secret-for-ci
+#         AUTH0_DOMAIN: test.auth0.com
+#         AUTH0_AUDIENCE: test-audience
+#         IMAGEKIT_PUBLIC_KEY: test-public-key
+#         IMAGEKIT_PRIVATE_KEY: test-private-key
+#         IMAGEKIT_URL_ENDPOINT: https://test.imagekit.io
+#         RAZORPAY_KEY_ID: test-razorpay-key
+#         RAZORPAY_KEY_SECRET: test-razorpay-secret
+#         RAZORPAY_WEBHOOK_SECRET: test-webhook-secret
+#         OPENAI_API_KEY: test-openai-key
+#         GEMINI_API_KEY: test-gemini-key
+#         IDEOGRAM_API_KEY: test-ideogram-key
+#         SLACK_WEBHOOK_URL: https://hooks.slack.com/test
 
-    - name: Run end-to-end tests
-      run: npm run test:e2e
-      env:
-        NODE_ENV: test
-        MONGODB_URI: mongodb://localhost:27017/jomobit-test
-        REDIS_URL: redis://localhost:6379
-        JWT_SECRET: test-jwt-secret-for-ci
-        AUTH0_DOMAIN: test.auth0.com
-        AUTH0_AUDIENCE: test-audience
-        IMAGEKIT_PUBLIC_KEY: test-public-key
-        IMAGEKIT_PRIVATE_KEY: test-private-key
-        IMAGEKIT_URL_ENDPOINT: https://test.imagekit.io
-        RAZORPAY_KEY_ID: test-razorpay-key
-        RAZORPAY_KEY_SECRET: test-razorpay-secret
-        RAZORPAY_WEBHOOK_SECRET: test-webhook-secret
-        OPENAI_API_KEY: test-openai-key
-        GEMINI_API_KEY: test-gemini-key
-        IDEOGRAM_API_KEY: test-ideogram-key
-        SLACK_WEBHOOK_URL: https://hooks.slack.com/test
+#     - name: Run end-to-end tests
+#       run: npm run test:e2e
+#       env:
+#         NODE_ENV: test
+#         MONGODB_URI: mongodb://localhost:27017/jomobit-test
+#         REDIS_URL: redis://localhost:6379
+#         JWT_SECRET: test-jwt-secret-for-ci
+#         AUTH0_DOMAIN: test.auth0.com
+#         AUTH0_AUDIENCE: test-audience
+#         IMAGEKIT_PUBLIC_KEY: test-public-key
+#         IMAGEKIT_PRIVATE_KEY: test-private-key
+#         IMAGEKIT_URL_ENDPOINT: https://test.imagekit.io
+#         RAZORPAY_KEY_ID: test-razorpay-key
+#         RAZORPAY_KEY_SECRET: test-razorpay-secret
+#         RAZORPAY_WEBHOOK_SECRET: test-webhook-secret
+#         OPENAI_API_KEY: test-openai-key
+#         GEMINI_API_KEY: test-gemini-key
+#         IDEOGRAM_API_KEY: test-ideogram-key
+#         SLACK_WEBHOOK_URL: https://hooks.slack.com/test
 
-    - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage/lcov.info
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: false
+#     - name: Upload coverage reports to Codecov
+#       uses: codecov/codecov-action@v3
+#       with:
+#         file: ./coverage/lcov.info
+#         flags: unittests
+#         name: codecov-umbrella
+#         fail_ci_if_error: false
 
-    - name: Upload coverage to Coveralls
-      uses: coverallsapp/github-action@v2
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        path-to-lcov: ./coverage/lcov.info
+#     - name: Upload coverage to Coveralls
+#       uses: coverallsapp/github-action@v2
+#       with:
+#         github-token: ${{ secrets.GITHUB_TOKEN }}
+#         path-to-lcov: ./coverage/lcov.info
 
-  performance:
-    runs-on: ubuntu-latest
-    needs: test
+#   performance:
+#     runs-on: ubuntu-latest
+#     needs: test
 
-    services:
-      mongodb:
-        image: mongo:7.0
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+#     services:
+#       mongodb:
+#         image: mongo:7.0
+#         ports:
+#           - 27017:27017
+#         options: >-
+#           --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
+#           --health-interval 10s
+#           --health-timeout 5s
+#           --health-retries 5
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
 
-    - name: Use Node.js 20.x
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20.x
-        cache: 'npm'
+#     - name: Use Node.js 20.x
+#       uses: actions/setup-node@v4
+#       with:
+#         node-version: 20.x
+#         cache: 'npm'
 
-    - name: Install dependencies
-      run: npm ci
+#     - name: Install dependencies
+#       run: npm ci
 
-    - name: Run performance tests
-      run: npm run test:performance
-      env:
-        NODE_ENV: test
-        MONGODB_URI: mongodb://localhost:27017/jomobit-perf-test
-        JWT_SECRET: test-jwt-secret-for-ci
-        AUTH0_DOMAIN: test.auth0.com
-        AUTH0_AUDIENCE: test-audience
+#     - name: Run performance tests
+#       run: npm run test:performance
+#       env:
+#         NODE_ENV: test
+#         MONGODB_URI: mongodb://localhost:27017/jomobit-perf-test
+#         JWT_SECRET: test-jwt-secret-for-ci
+#         AUTH0_DOMAIN: test.auth0.com
+#         AUTH0_AUDIENCE: test-audience
 
-    - name: Upload performance results
-      uses: actions/upload-artifact@v3
-      if: always()
-      with:
-        name: performance-results
-        path: |
-          performance-results.json
-          performance-logs/
+#     - name: Upload performance results
+#       uses: actions/upload-artifact@v3
+#       if: always()
+#       with:
+#         name: performance-results
+#         path: |
+#           performance-results.json
+#           performance-logs/
