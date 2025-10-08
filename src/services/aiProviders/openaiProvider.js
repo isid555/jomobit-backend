@@ -446,9 +446,7 @@ class OpenAILLMProvider extends LLMProvider {
 class OpenAIDiffusionProvider extends DiffusionProvider {
   constructor(config = {}) {
     super(config);
-    // this.apiKey = config.apiKey || process.env.OPENAI_API_KEY;
-    this.apiKey =
-      "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";
+    this.apiKey = config.apiKey || process.env.OPENAI_API_KEY;
     this.model = "gpt-image-1";
     this.baseURL = "https://api.openai.com/v1";
     this.imageKit = new ImageKitService(config.imageKit);
