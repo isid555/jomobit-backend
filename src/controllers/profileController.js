@@ -1,5 +1,5 @@
-const ProfileService = require('../services/profileService');
-const logger = require('../utils/logger');
+const ProfileService = require("../services/profileService");
+const logger = require("../utils/logger");
 
 /**
  * Profile Controller
@@ -8,17 +8,16 @@ const logger = require('../utils/logger');
 class ProfileController {
   constructor() {
     this.profileService = new ProfileService();
-        // Bind all methods to preserve 'this' context
-        this.createProfile = this.createProfile.bind(this);
-        this.getUserProfiles = this.getUserProfiles.bind(this);
-        this.getProfileById = this.getProfileById.bind(this);
-        this.updateProfile = this.updateProfile.bind(this);
-        this.deactivateProfile = this.deactivateProfile.bind(this);
-        this.activateProfile = this.activateProfile.bind(this);
-        this.searchProfiles = this.searchProfiles.bind(this);
-        this.getProfileGenerationSummary = this.getProfileGenerationSummary.bind(this);
-      
-    
+    // Bind all methods to preserve 'this' context
+    this.createProfile = this.createProfile.bind(this);
+    this.getUserProfiles = this.getUserProfiles.bind(this);
+    this.getProfileById = this.getProfileById.bind(this);
+    this.updateProfile = this.updateProfile.bind(this);
+    this.deactivateProfile = this.deactivateProfile.bind(this);
+    this.activateProfile = this.activateProfile.bind(this);
+    this.searchProfiles = this.searchProfiles.bind(this);
+    this.getProfileGenerationSummary =
+      this.getProfileGenerationSummary.bind(this);
   }
 
   /**
@@ -31,62 +30,64 @@ class ProfileController {
       const profileData = req.body;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.profileService.createProfile(actualUserId, profileData);
+      const result = await this.profileService.createProfile(
+        actualUserId,
+        profileData
+      );
 
-      logger.info('Business profile created', {
+      logger.info("Business profile created", {
         userId: actualUserId,
         profileId: result.profile._id,
-        profileName: result.profile.name
+        profileName: result.profile.name,
       });
 
       res.status(201).json({
         success: true,
         message: result.message,
         profile: result.profile,
-        planInfo: result.planInfo
+        planInfo: result.planInfo,
       });
-
     } catch (error) {
-      if (error.name === 'PlanLimitExceededError') {
+      if (error.name === "PlanLimitExceededError") {
         return res.status(403).json({
           success: false,
-          error: 'Plan limit exceeded',
+          error: "Plan limit exceeded",
           message: error.message,
           details: {
             currentCount: error.currentCount,
             limit: error.limit,
-            planName: error.planName
-          }
+            planName: error.planName,
+          },
         });
       }
 
-      if (error.name === 'ProfileValidationError') {
+      if (error.name === "ProfileValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
+          error: "Validation error",
           message: error.message,
-          field: error.field
+          field: error.field,
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error creating business profile:', error);
+      logger.error("Error creating business profile:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to create business profile'
+        error: "Internal server error",
+        message: "Failed to create business profile",
       });
     }
   }
@@ -102,46 +103,45 @@ class ProfileController {
         includeInactive = false,
         limit = 50,
         skip = 0,
-        sortBy = 'createdAt',
-        sortOrder = 'desc'
+        sortBy = "createdAt",
+        sortOrder = "desc",
       } = req.query;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+      const sort = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
 
       const result = await this.profileService.getUserProfiles(actualUserId, {
-        includeInactive: includeInactive === 'true',
+        includeInactive: includeInactive === "true",
         limit: parseInt(limit),
         skip: parseInt(skip),
-        sort
+        sort,
       });
 
       res.json({
         success: true,
         profiles: result.profiles,
         planInfo: result.planInfo,
-        pagination: result.pagination
+        pagination: result.pagination,
       });
-
     } catch (error) {
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error fetching user profiles:', error);
+      logger.error("Error fetching user profiles:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch business profiles'
+        error: "Internal server error",
+        message: "Failed to fetch business profiles",
       });
     }
   }
@@ -156,41 +156,43 @@ class ProfileController {
       const { profileId } = req.params;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.profileService.getProfileById(actualUserId, profileId);
+      const result = await this.profileService.getProfileById(
+        actualUserId,
+        profileId
+      );
 
       res.json({
         success: true,
         profile: result.profile,
-        completeness: result.completeness
+        completeness: result.completeness,
       });
-
     } catch (error) {
-      if (error.name === 'ProfileNotFoundError') {
+      if (error.name === "ProfileNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Profile not found',
-          message: 'Business profile not found or access denied'
+          error: "Profile not found",
+          message: "Business profile not found or access denied",
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error fetching profile by ID:', error);
+      logger.error("Error fetching profile by ID:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch business profile'
+        error: "Internal server error",
+        message: "Failed to fetch business profile",
       });
     }
   }
@@ -206,57 +208,60 @@ class ProfileController {
       const updates = req.body;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.profileService.updateProfile(actualUserId, profileId, updates);
+      const result = await this.profileService.updateProfile(
+        actualUserId,
+        profileId,
+        updates
+      );
 
-      logger.info('Business profile updated', {
+      logger.info("Business profile updated", {
         userId: actualUserId,
         profileId,
-        updatedFields: result.updatedFields
+        updatedFields: result.updatedFields,
       });
 
       res.json({
         success: true,
         message: result.message,
         profile: result.profile,
-        updatedFields: result.updatedFields
+        updatedFields: result.updatedFields,
       });
-
     } catch (error) {
-      if (error.name === 'ProfileNotFoundError') {
+      if (error.name === "ProfileNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Profile not found',
-          message: 'Business profile not found or access denied'
+          error: "Profile not found",
+          message: "Business profile not found or access denied",
         });
       }
 
-      if (error.name === 'ProfileValidationError') {
+      if (error.name === "ProfileValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
+          error: "Validation error",
           message: error.message,
-          field: error.field
+          field: error.field,
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error updating business profile:', error);
+      logger.error("Error updating business profile:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to update business profile'
+        error: "Internal server error",
+        message: "Failed to update business profile",
       });
     }
   }
@@ -271,46 +276,48 @@ class ProfileController {
       const { profileId } = req.params;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.profileService.deactivateProfile(actualUserId, profileId);
-
-      logger.info('Business profile deactivated', {
-        userId: actualUserId,
+      const result = await this.profileService.deactivateProfile(
+        actualUserId,
         profileId
+      );
+
+      logger.info("Business profile deactivated", {
+        userId: actualUserId,
+        profileId,
       });
 
       res.json({
         success: true,
         message: result.message,
-        profile: result.profile
+        profile: result.profile,
       });
-
     } catch (error) {
-      if (error.name === 'ProfileNotFoundError') {
+      if (error.name === "ProfileNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Profile not found',
-          message: 'Business profile not found or access denied'
+          error: "Profile not found",
+          message: "Business profile not found or access denied",
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error deactivating business profile:', error);
+      logger.error("Error deactivating business profile:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to deactivate business profile'
+        error: "Internal server error",
+        message: "Failed to deactivate business profile",
       });
     }
   }
@@ -325,59 +332,61 @@ class ProfileController {
       const { profileId } = req.params;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.profileService.activateProfile(actualUserId, profileId);
-
-      logger.info('Business profile activated', {
-        userId: actualUserId,
+      const result = await this.profileService.activateProfile(
+        actualUserId,
         profileId
+      );
+
+      logger.info("Business profile activated", {
+        userId: actualUserId,
+        profileId,
       });
 
       res.json({
         success: true,
         message: result.message,
-        profile: result.profile
+        profile: result.profile,
       });
-
     } catch (error) {
-      if (error.name === 'ProfileNotFoundError') {
+      if (error.name === "ProfileNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Profile not found',
-          message: 'Business profile not found or access denied'
+          error: "Profile not found",
+          message: "Business profile not found or access denied",
         });
       }
 
-      if (error.name === 'PlanLimitExceededError') {
+      if (error.name === "PlanLimitExceededError") {
         return res.status(403).json({
           success: false,
-          error: 'Plan limit exceeded',
+          error: "Plan limit exceeded",
           message: error.message,
           details: {
             currentCount: error.currentCount,
             limit: error.limit,
-            planName: error.planName
-          }
+            planName: error.planName,
+          },
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error activating business profile:', error);
+      logger.error("Error activating business profile:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to activate business profile'
+        error: "Internal server error",
+        message: "Failed to activate business profile",
       });
     }
   }
@@ -394,43 +403,46 @@ class ProfileController {
       if (!searchText || searchText.trim().length === 0) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'Search text is required'
+          error: "Validation error",
+          message: "Search text is required",
         });
       }
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.profileService.searchUserProfiles(actualUserId, searchText.trim(), {
-        limit: parseInt(limit),
-        skip: parseInt(skip)
-      });
+      const result = await this.profileService.searchUserProfiles(
+        actualUserId,
+        searchText.trim(),
+        {
+          limit: parseInt(limit),
+          skip: parseInt(skip),
+        }
+      );
 
       res.json({
         success: true,
         profiles: result.profiles,
         searchText: result.searchText,
-        pagination: result.pagination
+        pagination: result.pagination,
       });
-
     } catch (error) {
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error searching user profiles:', error);
+      logger.error("Error searching user profiles:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to search business profiles'
+        error: "Internal server error",
+        message: "Failed to search business profiles",
       });
     }
   }
@@ -445,42 +457,67 @@ class ProfileController {
       const { profileId } = req.params;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.profileService.getProfileGenerationSummary(actualUserId, profileId);
+      const result = await this.profileService.getProfileGenerationSummary(
+        actualUserId,
+        profileId
+      );
 
       res.json({
         success: true,
         generationSummary: result.generationSummary,
         completeness: result.completeness,
-        isReadyForGeneration: result.isReadyForGeneration
+        isReadyForGeneration: result.isReadyForGeneration,
       });
-
     } catch (error) {
-      if (error.name === 'ProfileNotFoundError') {
+      if (error.name === "ProfileNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Profile not found',
-          message: 'Business profile not found or access denied'
+          error: "Profile not found",
+          message: "Business profile not found or access denied",
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error fetching profile generation summary:', error);
+      logger.error("Error fetching profile generation summary:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch profile generation summary'
+        error: "Internal server error",
+        message: "Failed to fetch profile generation summary",
+      });
+    }
+  }
+
+  /**
+   * Get imagekit auth params
+   * GET /api/profiles/imagekit-auth
+   */
+  async getImageKitAuthParams(req, res) {
+    try {
+      const ImageKit = require("../utils/imageKit");
+      const imageKit = new ImageKit();
+      const authParams = await imageKit.getAuthParams();
+      return res.json({
+        success: true,
+        authenticationParams: authParams,
+      });
+    } catch (err) {
+      logger.error("Error fetching imagekit auth params:", err);
+      res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: "Failed to fetch imagekit auth params",
       });
     }
   }
