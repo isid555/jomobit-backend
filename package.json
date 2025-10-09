@@ -24,6 +24,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@types/uuid": "^10.0.0",
     "canvas": "^3.2.0",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",

@@ -508,6 +508,13 @@ class ProfileController {
       const ImageKit = require("../utils/imageKit");
       const imageKit = new ImageKit();
       const authParams = await imageKit.getAuthParams();
+
+      // Set headers to prevent caching of the params
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, private"
+      );
+
       return res.json({
         success: true,
         authenticationParams: authParams,

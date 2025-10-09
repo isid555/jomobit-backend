@@ -1,4 +1,5 @@
 const imageKit = require("imagekit");
+const { v4: uuidv4 } = require("uuid");
 
 class ImageKit {
   constructor(config = {}) {
@@ -147,19 +148,18 @@ class ImageKit {
    */
   async getAuthParams() {
     try {
-        const { token, expire, signature } =
-          this.imagekit.getAuthenticationParameters({
-            expires: 3600, // 1 hour
-          });
+      // Generate a unique token
+      const uuidToken = uuidv4();
+      const { token, expire, signature } =
+        this.imagekit.getAuthenticationParameters(uuidToken, {expires: 3600});
 
-        return {
-          token,
-          expire,
-          signature,
-          publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
-        };
-    }
-    catch (err) {
+      return {
+        token,
+        expire,
+        signature,
+        publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+      };
+    } catch (err) {
       console.error("Error fetching imagekit auth params:", err);
       throw new Error("Failed to fetch imagekit auth params");
     }
