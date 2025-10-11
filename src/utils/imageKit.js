@@ -78,7 +78,7 @@ class ImageKit {
    * @param {string} fileName - File name
    * @returns {Promise<Object>} Upload result
    */
-  async uploadImage(imageData, fileName) {
+  async uploadImage(imageData, fileName, folder=this.defaultFolder) {
     try {
       console.log(`Starting ImageKit upload for: ${fileName}`);
 
@@ -89,7 +89,7 @@ class ImageKit {
         uploadData = {
           file: imageData,
           fileName: fileName,
-          folder: this.defaultFolder,
+          folder: folder,
           useUniqueFileName: true,
         };
       } else if (typeof imageData === "string") {

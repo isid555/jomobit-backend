@@ -469,7 +469,7 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
       let endpoint;
       let body;
 
-      if (validatedParams.image === null) {
+      if (validatedParams.template === null) {
         endpoint = "/images/generations";
         body = {
           model: this.model,
@@ -481,9 +481,9 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
       } else {
 
         // Handle template URL if provided
-        if (validatedParams.image && validatedParams.image.startsWith("http")) {
-          validatedParams.image = await ImageDownloader.downloadAsBase64(
-            validatedParams.image
+        if (validatedParams.template && validatedParams.template.startsWith("http")) {
+          validatedParams.template = await ImageDownloader.downloadAsBase64(
+            validatedParams.template
           );
         }
 
@@ -497,7 +497,7 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
         endpoint = "/images/edits";
         body = {
           model: this.model,
-          image: validatedParams.image,
+          template_ref: validatedParams.template,
           prompt: enhancedPrompt,
           size: validatedParams.size,
           quality: validatedParams.quality,
@@ -592,8 +592,8 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
       quality: parameters.quality || "medium",
       // style: parameters.style || "natural",
       format: parameters.format || "png",
-      image: parameters.image || null,
-      logo: parameters.logo || null,
+      template: parameters.image_url.template || null,
+      logo: parameters.image_url.logo || null,
     };
 
     // Validate size

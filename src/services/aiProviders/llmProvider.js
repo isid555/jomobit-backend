@@ -126,6 +126,8 @@ Body copy (below headline): “This Navratri, celebrating the divine energy that
 Brand logo: Place the provided DesiWeaves logo at the bottom center, aligned and scaled proportionally with an 80px bottom margin.
 
 Preserve all original visual compositions and proportions; apply micro-adjustments up to 20px only if necessary to prevent text or logo collision with visual elements. The result should harmoniously blend elegant typography with the cinematic imagery, conveying a serene yet powerful festive tribute to craft.
+
+Use the provided poster template as base image for style and inspiration.
   `;
   }
 }

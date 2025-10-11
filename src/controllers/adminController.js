@@ -1,5 +1,5 @@
-const AdminService = require('../services/adminService');
-const logger = require('../utils/logger');
+const AdminService = require("../services/adminService");
+const logger = require("../utils/logger");
 
 /**
  * AdminController
@@ -17,22 +17,22 @@ class AdminController {
   async getDashboard(req, res) {
     try {
       const { startDate, endDate } = req.query;
-      
+
       const dashboard = await this.adminService.getDashboardInsights({
         startDate,
-        endDate
+        endDate,
       });
 
       res.json({
         success: true,
-        dashboard
+        dashboard,
       });
     } catch (error) {
-      logger.error('Error getting admin dashboard:', error);
+      logger.error("Error getting admin dashboard:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch dashboard data'
+        error: "Internal server error",
+        message: "Failed to fetch dashboard data",
       });
     }
   }
@@ -44,22 +44,22 @@ class AdminController {
   async getUserMetrics(req, res) {
     try {
       const { startDate, endDate } = req.query;
-      
+
       const metrics = await this.adminService.getUserMetrics({
         startDate,
-        endDate
+        endDate,
       });
 
       res.json({
         success: true,
-        metrics
+        metrics,
       });
     } catch (error) {
-      logger.error('Error getting user metrics:', error);
+      logger.error("Error getting user metrics:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch user metrics'
+        error: "Internal server error",
+        message: "Failed to fetch user metrics",
       });
     }
   }
@@ -71,22 +71,22 @@ class AdminController {
   async getRevenueMetrics(req, res) {
     try {
       const { startDate, endDate } = req.query;
-      
+
       const metrics = await this.adminService.getRevenueMetrics({
         startDate,
-        endDate
+        endDate,
       });
 
       res.json({
         success: true,
-        metrics
+        metrics,
       });
     } catch (error) {
-      logger.error('Error getting revenue metrics:', error);
+      logger.error("Error getting revenue metrics:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch revenue metrics'
+        error: "Internal server error",
+        message: "Failed to fetch revenue metrics",
       });
     }
   }
@@ -107,8 +107,8 @@ class AdminController {
         status,
         role,
         search,
-        sortBy = 'createdAt',
-        sortOrder = 'desc'
+        sortBy = "createdAt",
+        sortOrder = "desc",
       } = req.query;
 
       const result = await this.adminService.getUsers({
@@ -118,19 +118,19 @@ class AdminController {
         role,
         search,
         sortBy,
-        sortOrder
+        sortOrder,
       });
 
       res.json({
         success: true,
-        ...result
+        ...result,
       });
     } catch (error) {
-      logger.error('Error getting users:', error);
+      logger.error("Error getting users:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch users'
+        error: "Internal server error",
+        message: "Failed to fetch users",
       });
     }
   }
@@ -142,28 +142,28 @@ class AdminController {
   async getUserDetails(req, res) {
     try {
       const { userId } = req.params;
-      
+
       const userDetails = await this.adminService.getUserDetails(userId);
 
       res.json({
         success: true,
-        ...userDetails
+        ...userDetails,
       });
     } catch (error) {
-      logger.error('Error getting user details:', error);
-      
-      if (error.message === 'User not found') {
+      logger.error("Error getting user details:", error);
+
+      if (error.message === "User not found") {
         return res.status(404).json({
           success: false,
-          error: 'Not found',
-          message: 'User not found'
+          error: "Not found",
+          message: "User not found",
         });
       }
 
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch user details'
+        error: "Internal server error",
+        message: "Failed to fetch user details",
       });
     }
   }
@@ -181,48 +181,48 @@ class AdminController {
       if (!reason) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'Suspension reason is required'
+          error: "Validation error",
+          message: "Suspension reason is required",
         });
       }
 
       const user = await this.adminService.suspendUser(userId, reason, adminId);
 
       // Send Slack notification
-      await this.adminService.sendSystemAlert('user_suspended', {
+      await this.adminService.sendSystemAlert("user_suspended", {
         userEmail: user.email,
         reason,
-        adminEmail: req.user.email
+        adminEmail: req.user.email,
       });
 
       res.json({
         success: true,
-        message: 'User suspended successfully',
-        user
+        message: "User suspended successfully",
+        user,
       });
     } catch (error) {
-      logger.error('Error suspending user:', error);
-      
-      if (error.message === 'User not found') {
+      logger.error("Error suspending user:", error);
+
+      if (error.message === "User not found") {
         return res.status(404).json({
           success: false,
-          error: 'Not found',
-          message: 'User not found'
+          error: "Not found",
+          message: "User not found",
         });
       }
 
-      if (error.message === 'User is already suspended') {
+      if (error.message === "User is already suspended") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'User is already suspended'
+          error: "Validation error",
+          message: "User is already suspended",
         });
       }
 
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to suspend user'
+        error: "Internal server error",
+        message: "Failed to suspend user",
       });
     }
   }
@@ -239,39 +239,39 @@ class AdminController {
       const user = await this.adminService.reactivateUser(userId, adminId);
 
       // Send Slack notification
-      await this.adminService.sendSystemAlert('user_reactivated', {
+      await this.adminService.sendSystemAlert("user_reactivated", {
         userEmail: user.email,
-        adminEmail: req.user.email
+        adminEmail: req.user.email,
       });
 
       res.json({
         success: true,
-        message: 'User reactivated successfully',
-        user
+        message: "User reactivated successfully",
+        user,
       });
     } catch (error) {
-      logger.error('Error reactivating user:', error);
-      
-      if (error.message === 'User not found') {
+      logger.error("Error reactivating user:", error);
+
+      if (error.message === "User not found") {
         return res.status(404).json({
           success: false,
-          error: 'Not found',
-          message: 'User not found'
+          error: "Not found",
+          message: "User not found",
         });
       }
 
-      if (error.message === 'User is not suspended') {
+      if (error.message === "User is not suspended") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'User is not suspended'
+          error: "Validation error",
+          message: "User is not suspended",
         });
       }
 
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to reactivate user'
+        error: "Internal server error",
+        message: "Failed to reactivate user",
       });
     }
   }
@@ -290,14 +290,14 @@ class AdminController {
 
       res.json({
         success: true,
-        plans
+        plans,
       });
     } catch (error) {
-      logger.error('Error getting plans:', error);
+      logger.error("Error getting plans:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch plans'
+        error: "Internal server error",
+        message: "Failed to fetch plans",
       });
     }
   }
@@ -309,16 +309,16 @@ class AdminController {
   async createPlan(req, res) {
     try {
       const planData = req.body;
-      
+
       // Validate required fields
-      const requiredFields = ['name', 'planId', 'pricing', 'features', 'tier'];
-      const missingFields = requiredFields.filter(field => !planData[field]);
-      
+      const requiredFields = ["name", "planId", "pricing", "features", "tier"];
+      const missingFields = requiredFields.filter((field) => !planData[field]);
+
       if (missingFields.length > 0) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: `Missing required fields: ${missingFields.join(', ')}`
+          error: "Validation error",
+          message: `Missing required fields: ${missingFields.join(", ")}`,
         });
       }
 
@@ -326,24 +326,24 @@ class AdminController {
 
       res.status(201).json({
         success: true,
-        message: 'Plan created successfully',
-        plan
+        message: "Plan created successfully",
+        plan,
       });
     } catch (error) {
-      logger.error('Error creating plan:', error);
-      
-      if (error.message === 'Plan ID already exists') {
+      logger.error("Error creating plan:", error);
+
+      if (error.message === "Plan ID already exists") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'Plan ID already exists'
+          error: "Validation error",
+          message: "Plan ID already exists",
         });
       }
 
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to create plan'
+        error: "Internal server error",
+        message: "Failed to create plan",
       });
     }
   }
@@ -361,32 +361,32 @@ class AdminController {
 
       res.json({
         success: true,
-        message: 'Plan updated successfully',
-        plan
+        message: "Plan updated successfully",
+        plan,
       });
     } catch (error) {
-      logger.error('Error updating plan:', error);
-      
-      if (error.message === 'Plan not found') {
+      logger.error("Error updating plan:", error);
+
+      if (error.message === "Plan not found") {
         return res.status(404).json({
           success: false,
-          error: 'Not found',
-          message: 'Plan not found'
+          error: "Not found",
+          message: "Plan not found",
         });
       }
 
-      if (error.message.includes('Cannot change plan ID')) {
+      if (error.message.includes("Cannot change plan ID")) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to update plan'
+        error: "Internal server error",
+        message: "Failed to update plan",
       });
     }
   }
@@ -403,37 +403,39 @@ class AdminController {
 
       res.json({
         success: true,
-        message: 'Plan deleted successfully',
-        plan
+        message: "Plan deleted successfully",
+        plan,
       });
     } catch (error) {
-      logger.error('Error deleting plan:', error);
-      
-      if (error.message === 'Plan not found') {
+      logger.error("Error deleting plan:", error);
+
+      if (error.message === "Plan not found") {
         return res.status(404).json({
           success: false,
-          error: 'Not found',
-          message: 'Plan not found'
+          error: "Not found",
+          message: "Plan not found",
         });
       }
 
-      if (error.message.includes('Cannot delete plan with active subscriptions')) {
+      if (
+        error.message.includes("Cannot delete plan with active subscriptions")
+      ) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to delete plan'
+        error: "Internal server error",
+        message: "Failed to delete plan",
       });
     }
   }
 
- /**
+  /**
    * Template Management Endpoints
    */
 
@@ -449,8 +451,8 @@ class AdminController {
         status,
         category,
         search,
-        sortBy = 'createdAt',
-        sortOrder = 'desc'
+        sortBy = "createdAt",
+        sortOrder = "desc",
       } = req.query;
 
       const result = await this.adminService.getTemplatesWithStats({
@@ -460,19 +462,19 @@ class AdminController {
         category,
         search,
         sortBy,
-        sortOrder
+        sortOrder,
       });
 
       res.json({
         success: true,
-        ...result
+        ...result,
       });
     } catch (error) {
-      logger.error('Error getting templates:', error);
+      logger.error("Error getting templates:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch templates'
+        error: "Internal server error",
+        message: "Failed to fetch templates",
       });
     }
   }
@@ -489,36 +491,39 @@ class AdminController {
       if (!templates || !Array.isArray(templates) || templates.length === 0) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'Templates array is required and must not be empty'
+          error: "Validation error",
+          message: "Templates array is required and must not be empty",
         });
       }
 
-      const results = await this.adminService.batchUploadTemplates(templates, adminId);
+      const results = await this.adminService.batchUploadTemplates(
+        templates,
+        adminId
+      );
 
       // Send Slack notification about batch upload
       await this.adminService.sendSlackNotification({
         message: `📁 Batch template upload completed by ${req.user.email}`,
-        channel: '#admin-activity',
+        channel: "#admin-activity",
         metadata: {
           total: results.total,
           successful: results.successful.length,
           failed: results.failed.length,
-          adminEmail: req.user.email
-        }
+          adminEmail: req.user.email,
+        },
       });
 
       res.status(201).json({
         success: true,
-        message: 'Batch upload completed',
-        results
+        message: "Batch upload completed",
+        results,
       });
     } catch (error) {
-      logger.error('Error in batch template upload:', error);
+      logger.error("Error in batch template upload:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to batch upload templates'
+        error: "Internal server error",
+        message: "Failed to batch upload templates",
       });
     }
   }
@@ -533,36 +538,40 @@ class AdminController {
       const { isActive } = req.body;
       const adminId = req.user.id;
 
-      if (typeof isActive !== 'boolean') {
+      if (typeof isActive !== "boolean") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'isActive must be a boolean value'
+          error: "Validation error",
+          message: "isActive must be a boolean value",
         });
       }
 
-      const template = await this.adminService.updateTemplateStatus(templateId, isActive, adminId);
+      const template = await this.adminService.updateTemplateStatus(
+        templateId,
+        isActive,
+        adminId
+      );
 
       res.json({
         success: true,
-        message: 'Template status updated successfully',
-        template
+        message: "Template status updated successfully",
+        template,
       });
     } catch (error) {
-      logger.error('Error updating template status:', error);
-      
-      if (error.message === 'Template not found') {
+      logger.error("Error updating template status:", error);
+
+      if (error.message === "Template not found") {
         return res.status(404).json({
           success: false,
-          error: 'Not found',
-          message: 'Template not found'
+          error: "Not found",
+          message: "Template not found",
         });
       }
 
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to update template status'
+        error: "Internal server error",
+        message: "Failed to update template status",
       });
     }
   }
@@ -584,8 +593,8 @@ class AdminController {
         startDate,
         endDate,
         userId,
-        sortBy = 'paidAt',
-        sortOrder = 'desc'
+        sortBy = "paidAt",
+        sortOrder = "desc",
       } = req.query;
 
       const result = await this.adminService.getPaymentTransactions({
@@ -596,19 +605,19 @@ class AdminController {
         endDate,
         userId,
         sortBy,
-        sortOrder
+        sortOrder,
       });
 
       res.json({
         success: true,
-        ...result
+        ...result,
       });
     } catch (error) {
-      logger.error('Error getting payment transactions:', error);
+      logger.error("Error getting payment transactions:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch payment transactions'
+        error: "Internal server error",
+        message: "Failed to fetch payment transactions",
       });
     }
   }
@@ -620,22 +629,22 @@ class AdminController {
   async getPaymentAnalytics(req, res) {
     try {
       const { startDate, endDate } = req.query;
-      
+
       const analytics = await this.adminService.getPaymentAnalytics({
         startDate,
-        endDate
+        endDate,
       });
 
       res.json({
         success: true,
-        analytics
+        analytics,
       });
     } catch (error) {
-      logger.error('Error getting payment analytics:', error);
+      logger.error("Error getting payment analytics:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch payment analytics'
+        error: "Internal server error",
+        message: "Failed to fetch payment analytics",
       });
     }
   }
@@ -647,23 +656,23 @@ class AdminController {
   async getFailedPayments(req, res) {
     try {
       const { limit = 50, startDate, endDate } = req.query;
-      
+
       const failedPayments = await this.adminService.getFailedPayments({
         limit: parseInt(limit),
         startDate,
-        endDate
+        endDate,
       });
 
       res.json({
         success: true,
-        failedPayments
+        failedPayments,
       });
     } catch (error) {
-      logger.error('Error getting failed payments:', error);
+      logger.error("Error getting failed payments:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch failed payments'
+        error: "Internal server error",
+        message: "Failed to fetch failed payments",
       });
     }
   }
@@ -680,16 +689,16 @@ class AdminController {
     try {
       const {
         message,
-        channel = '#general',
+        channel = "#general",
         urgent = false,
-        type = 'info'
+        type = "info",
       } = req.body;
 
       if (!message) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'Message is required'
+          error: "Validation error",
+          message: "Message is required",
         });
       }
 
@@ -700,21 +709,21 @@ class AdminController {
         type,
         metadata: {
           sentBy: req.user.email,
-          timestamp: new Date().toISOString()
-        }
+          timestamp: new Date().toISOString(),
+        },
       });
 
       res.json({
         success: true,
-        message: 'Notification sent successfully',
-        result
+        message: "Notification sent successfully",
+        result,
       });
     } catch (error) {
-      logger.error('Error sending Slack notification:', error);
+      logger.error("Error sending Slack notification:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to send notification'
+        error: "Internal server error",
+        message: "Failed to send notification",
       });
     }
   }
@@ -729,15 +738,15 @@ class AdminController {
 
       res.json({
         success: true,
-        message: 'Daily summary sent successfully',
-        result
+        message: "Daily summary sent successfully",
+        result,
       });
     } catch (error) {
-      logger.error('Error sending daily summary:', error);
+      logger.error("Error sending daily summary:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to send daily summary'
+        error: "Internal server error",
+        message: "Failed to send daily summary",
       });
     }
   }
@@ -754,18 +763,18 @@ class AdminController {
     try {
       const healthCheck = await this.adminService.performHealthCheck();
 
-      const statusCode = healthCheck.overall === 'healthy' ? 200 : 503;
-      
+      const statusCode = healthCheck.overall === "healthy" ? 200 : 503;
+
       res.status(statusCode).json({
         success: true,
-        health: healthCheck
+        health: healthCheck,
       });
     } catch (error) {
-      logger.error('Error performing health check:', error);
+      logger.error("Error performing health check:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to perform health check'
+        error: "Internal server error",
+        message: "Failed to perform health check",
       });
     }
   }
@@ -777,45 +786,45 @@ class AdminController {
   async getSystemConfig(req, res) {
     try {
       const config = {
-        environment: process.env.NODE_ENV || 'development',
+        environment: process.env.NODE_ENV || "development",
         features: {
           auth0: !!process.env.AUTH0_DOMAIN,
           razorpay: !!process.env.RAZORPAY_KEY_ID,
           imagekit: !!process.env.IMAGEKIT_PUBLIC_KEY,
           redis: !!process.env.REDIS_URL,
-          slack: !!process.env.SLACK_WEBHOOK_URL
+          slack: !!process.env.SLACK_WEBHOOK_URL,
         },
         limits: {
           defaultCredits: 3,
-          maxFileSize: '10MB',
-          maxRequestSize: '50MB',
+          maxFileSize: "10MB",
+          maxRequestSize: "50MB",
           rateLimits: {
-            general: '100/hour',
-            generation: '10/hour',
-            upload: '5/hour'
-          }
+            general: "100/hour",
+            generation: "10/hour",
+            upload: "5/hour",
+          },
         },
         aiProviders: {
-          llm: ['openai', 'gemini'],
-          diffusion: ['openai', 'ideogram']
+          llm: ["openai", "gemini"],
+          diffusion: ["openai", "ideogram", "nano_banana"],
         },
         plans: {
           free: { credits: 3, profiles: 1 },
           plus: { credits: 50, profiles: 3, price: 25 },
-          pro: { credits: 120, profiles: 8, price: 59 }
-        }
+          pro: { credits: 120, profiles: 8, price: 59 },
+        },
       };
 
       res.json({
         success: true,
-        config
+        config,
       });
     } catch (error) {
-      logger.error('Error getting system configuration:', error);
+      logger.error("Error getting system configuration:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch system configuration'
+        error: "Internal server error",
+        message: "Failed to fetch system configuration",
       });
     }
   }
@@ -827,89 +836,103 @@ class AdminController {
   async exportData(req, res) {
     try {
       const { type } = req.params;
-      const { format = 'json', startDate, endDate } = req.query;
+      const { format = "json", startDate, endDate } = req.query;
 
       let data = [];
-      let filename = '';
+      let filename = "";
 
       switch (type) {
-        case 'users':
+        case "users":
           const usersResult = await this.adminService.getUsers({
             page: 1,
             limit: 10000, // Large limit for export
             ...(startDate && { startDate }),
-            ...(endDate && { endDate })
+            ...(endDate && { endDate }),
           });
           data = usersResult.users;
-          filename = `users_export_${new Date().toISOString().split('T')[0]}`;
+          filename = `users_export_${new Date().toISOString().split("T")[0]}`;
           break;
 
-        case 'payments':
-          const paymentsResult = await this.adminService.getPaymentTransactions({
-            page: 1,
-            limit: 10000,
-            startDate,
-            endDate
-          });
+        case "payments":
+          const paymentsResult = await this.adminService.getPaymentTransactions(
+            {
+              page: 1,
+              limit: 10000,
+              startDate,
+              endDate,
+            }
+          );
           data = paymentsResult.transactions;
-          filename = `payments_export_${new Date().toISOString().split('T')[0]}`;
+          filename = `payments_export_${
+            new Date().toISOString().split("T")[0]
+          }`;
           break;
 
-        case 'templates':
-          const templatesResult = await this.adminService.getTemplatesWithStats({
-            page: 1,
-            limit: 10000
-          });
+        case "templates":
+          const templatesResult = await this.adminService.getTemplatesWithStats(
+            {
+              page: 1,
+              limit: 10000,
+            }
+          );
           data = templatesResult.templates;
-          filename = `templates_export_${new Date().toISOString().split('T')[0]}`;
+          filename = `templates_export_${
+            new Date().toISOString().split("T")[0]
+          }`;
           break;
 
         default:
           return res.status(400).json({
             success: false,
-            error: 'Invalid export type',
-            message: 'Supported types: users, payments, templates'
+            error: "Invalid export type",
+            message: "Supported types: users, payments, templates",
           });
       }
 
-      if (format === 'csv') {
+      if (format === "csv") {
         // Convert to CSV format
         if (data.length === 0) {
           return res.status(404).json({
             success: false,
-            error: 'No data found',
-            message: 'No data available for export'
+            error: "No data found",
+            message: "No data available for export",
           });
         }
 
         const fields = Object.keys(data[0]);
         const csv = [
-          fields.join(','),
-          ...data.map(item => fields.map(field => 
-            JSON.stringify(item[field] || '')
-          ).join(','))
-        ].join('\n');
+          fields.join(","),
+          ...data.map((item) =>
+            fields.map((field) => JSON.stringify(item[field] || "")).join(",")
+          ),
+        ].join("\n");
 
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${filename}.csv"`
+        );
         res.send(csv);
       } else {
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}.json"`);
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${filename}.json"`
+        );
         res.json({
           success: true,
           exportType: type,
           exportDate: new Date().toISOString(),
           recordCount: data.length,
-          data
+          data,
         });
       }
     } catch (error) {
-      logger.error('Error exporting data:', error);
+      logger.error("Error exporting data:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to export data'
+        error: "Internal server error",
+        message: "Failed to export data",
       });
     }
   }

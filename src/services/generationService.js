@@ -319,9 +319,16 @@ class GenerationService {
       const templateParameters = this.prepareImageTemplateParameters(job.templateId);
       const brandParameter = this.prepareImageBrandParameters(job.profileId.getGenerationSummary());
 
+      const { image: templateUrl, ...restOfTemplate } = templateParameters;
+      const { logo: logoUrl, ...restOfBrand } = brandParameter;
+      
       const parameters = {
-        ...templateParameters,
-        ...brandParameter,
+        ...restOfTemplate,
+        ...restOfBrand,
+        image_urls: {
+          template: templateUrl,
+          logo: logoUrl,
+        },
       };
 
       logger.info("Parameters before image generation: ", parameters);
