@@ -1,6 +1,7 @@
 const SubscriptionService = require('../services/subscriptionService');
 const logger = require('../utils/logger');
-
+const razorpay = require('../config/razorpay.config');
+const Plan = require('../models/Plan');
 /**
  * Subscription Controller
  * Handles subscription and payment management endpoints
@@ -315,6 +316,109 @@ class SubscriptionController {
     }
   }
 
+
+
+  /**
+   * Create Razorpay Plans
+   * POST /api/subscriptions/plans/razorpay
+   */
+
+  async createRazorpayPlan(req, res) {
+    try {
+      const planData = req.body;
+
+      // Step 1️⃣ — Create Plan in DB first (inactive by default)
+      const plan = await Plan.create({
+        ...planData,
+        status: 'inactive'
+      });
+
+      // Step 2️⃣ — If Free Plan, skip Razorpay creation
+      if (plan.pricing.amount === 0) {
+        plan.status = 'active';
+        await plan.save();
+
+        return res.status(201).json({
+          success: true,
+          message: 'Free plan created and activated successfully (no Razorpay required)',
+          data: plan
+        });
+      }
+
+      // Step 3️⃣ — Validate Razorpay parameters before proceeding
+      if (!plan.pricing.interval || !plan.pricing.currency) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid plan interval or currency for Razorpay plan creation'
+        });
+      }
+
+      // Step 4️⃣ — Create plan on Razorpay
+      const razorpayPlan = await razorpay.plans.create({
+        period: plan.pricing.interval,
+        interval: plan.pricing.intervalCount || 1,
+        item: {
+          name: plan.name,
+          amount: plan.pricing.amount * 100, // convert ₹ → paise
+          currency: plan.pricing.currency,
+          description: plan.description || `${plan.name} plan`
+        },
+        notes: {
+          tier: plan.tier,
+          createdBy: 'system'
+        }
+      });
+
+      // Step 5️⃣ — Update the DB plan with Razorpay details & activate
+      plan.razorpayPlanId = razorpayPlan.id;
+      plan.metadata = {
+        razorpayItemId: razorpayPlan.item.id,
+        razorpayCreatedAt: razorpayPlan.created_at,
+        razorpayNotes: razorpayPlan.notes
+      };
+      plan.status = 'active';
+      await plan.save();
+
+      // Step 6️⃣ — Respond to client
+      return res.status(201).json({
+        success: true,
+        message: 'Plan created successfully and synced with Razorpay',
+        data: plan
+      });
+
+    } catch (error) {
+      console.error('Error creating Razorpay plan:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to create Razorpay plan',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Create Available plans
+   * POST /api/subscriptions/plans
+   */
+  async createPlans(req, res) {
+    try{
+      const Plan = require('../models/Plan');
+      const plans = await Plan.createDefaultPlans();
+
+      res.json({
+        success: true,
+        plans: plans.map(plan => plan.toObject())
+      });
+    }
+    catch(error){
+      logger.error('Error creating default plans:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: 'Failed to create default plans'
+      });
+    }
+  }
   /**
    * Get available plans
    * GET /api/subscriptions/plans

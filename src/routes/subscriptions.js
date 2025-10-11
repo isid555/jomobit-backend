@@ -618,6 +618,10 @@ router.get('/plans', subscriptionController.getAvailablePlans);
  */
 router.get('/plans/:planId', subscriptionController.getPlanById);
 
+router.post('/plans', subscriptionController.createRazorpayPlan);
+
+router.post('/plans/razorpay', subscriptionController.createRazorpayPlan);
+
 // Webhook endpoints
 
 /**
