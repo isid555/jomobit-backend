@@ -257,7 +257,6 @@ class OpenAILLMProvider extends LLMProvider {
 - Highlights the unique value proposition
 - Includes a strong call-to-action
 - Fits the ${template.style || "professional"} style
-- Is concise and impactful (max 50 words)
 - Appeals to the target audience for ${
         businessProfile.products?.join(", ") || businessProfile.name
       }`;
@@ -470,13 +469,6 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
       let endpoint;
       let body;
 
-      // Handle image URL if provided
-      if (validatedParams.image && validatedParams.image.startsWith("http")) {
-        validatedParams.image = await ImageDownloader.downloadAsBase64(
-          validatedParams.image
-        );
-      }
-
       if (validatedParams.image === null) {
         endpoint = "/images/generations";
         body = {
@@ -487,6 +479,21 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
           n: 1,
         };
       } else {
+
+        // Handle template URL if provided
+        if (validatedParams.image && validatedParams.image.startsWith("http")) {
+          validatedParams.image = await ImageDownloader.downloadAsBase64(
+            validatedParams.image
+          );
+        }
+
+        // Handle logo URL if provided
+        if (validatedParams.logo && validatedParams.logo.startsWith("http")) {
+          validatedParams.logo = await ImageDownloader.downloadAsBase64(
+            validatedParams.logo
+          );
+        }
+
         endpoint = "/images/edits";
         body = {
           model: this.model,
@@ -496,6 +503,10 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
           quality: validatedParams.quality,
           n: 1,
         };
+
+        if (validatedParams.logo) {
+          body.logo = validatedParams.logo;
+        }
       }
 
       const response = await this.makeAPICall(endpoint, body);
@@ -524,9 +535,10 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
     } catch (error) {
       throw new Error(`OpenAI image generation failed: ${error.message}`);
     }
-  } /**
- 
-  * Get job status (DALL-E is synchronous, so always return completed)
+  }
+
+  /**
+   * Get job status (DALL-E is synchronous, so always return completed)
    * @param {string} jobId - Job ID
    * @returns {Promise<Object>} Job status
    */
@@ -581,6 +593,7 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
       // style: parameters.style || "natural",
       format: parameters.format || "png",
       image: parameters.image || null,
+      logo: parameters.logo || null,
     };
 
     // Validate size
@@ -652,22 +665,30 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
   //   return await response.json();
   // }
 
+  /**
+   * Make API call to OpenAI
+   * @param {string} endpoint - API endpoint
+   * @param {Object} data - Request data
+   * @returns {Promise<Object>} API response
+   */
   async makeAPICall(endpoint, data) {
     try {
       let response;
 
       if (endpoint === "/images/edits") {
-        // Create FormData for image edits endpoint
         const formData = new FormData();
 
-        // Add all fields to FormData
+        // Loop through all keys in the data object
         Object.keys(data).forEach((key) => {
-          if (key === "image") {
-            // Convert base64 to Blob and append
-            const imageBlob = this.base64ToBlob(data.image);
-            formData.append("image", imageBlob, "image.png");
+          const value = data[key];
+
+          if (typeof value === "string" && value.startsWith("data:image")) {
+            const imageBlob = this.base64ToBlob(value);
+            // Use the key as the field name and create a dynamic filename
+            formData.append(key, imageBlob, `${key}.png`);
           } else {
-            formData.append(key, data[key]);
+            // Append non-image fields as usual
+            formData.append(key, value);
           }
         });
 
@@ -675,12 +696,12 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
           method: "POST",
           headers: {
             Authorization: `Bearer ${this.apiKey}`,
-            // Note: Don't set Content-Type header, it will be set automatically with boundary
+            // Content-Type is set automatically by the browser for FormData
           },
           body: formData,
         });
       } else {
-        // Regular JSON endpoints
+        // Regular JSON endpoints (no changes here)
         response = await fetch(`${this.baseURL}${endpoint}`, {
           method: "POST",
           headers: {
@@ -693,7 +714,7 @@ class OpenAIDiffusionProvider extends DiffusionProvider {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || "OpenAI API request failed");
+        throw new Error(error.error?.message || "API request failed");
       }
 
       console.log("Generation successful!");

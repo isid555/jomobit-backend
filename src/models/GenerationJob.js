@@ -64,7 +64,7 @@ const generationJobSchema = new mongoose.Schema({
   prompt: {
     generated: {
       type: String,
-      maxlength: 2000
+      maxlength: 2500
     },
     parameters: {
       type: mongoose.Schema.Types.Mixed,
