@@ -646,47 +646,546 @@ class WebhookController {
   }
 
   /**
-   * Placeholder handlers for subscription lifecycle events
-   * These will be implemented in task 4
+   * Handle subscription.authenticated event
+   * First payment/authorization succeeded
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - WebhookEvent document
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
    */
   async handleAuthenticated(payload, webhookEvent, subscription) {
-    logger.info('handleAuthenticated called - to be implemented in task 4');
-    return { success: true, message: 'Authenticated event received' };
+    const Subscription = require('../models/Subscription');
+
+    try {
+      const subscriptionEntity = payload.subscription.entity;
+      const paymentEntity = payload.payment?.entity;
+
+      logger.info('Processing subscription.authenticated event', {
+        razorpaySubscriptionId: subscriptionEntity.id,
+        subscriptionId: subscription?._id,
+        paymentId: paymentEntity?.id
+      });
+
+      if (!subscription) {
+        throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
+      }
+
+      // Update subscription status to 'authenticated'
+      subscription.status = 'authenticated';
+      subscription.authAttempts = subscriptionEntity.auth_attempts || 0;
+      subscription.startAt = subscriptionEntity.start_at ? new Date(subscriptionEntity.start_at * 1000) : null;
+      subscription.chargeAt = subscriptionEntity.charge_at ? new Date(subscriptionEntity.charge_at * 1000) : null;
+
+      await subscription.save();
+
+      // Record payment without granting credits
+      if (paymentEntity) {
+        await this.recordPayment(paymentEntity, subscription, false);
+      }
+
+      logger.info('Subscription authenticated successfully', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        status: subscription.status,
+        authAttempts: subscription.authAttempts
+      });
+
+      return {
+        success: true,
+        message: 'Subscription authenticated successfully',
+        subscriptionId: subscription._id,
+        userId: subscription.userId
+      };
+    } catch (error) {
+      logger.error('Error handling subscription.authenticated event', {
+        razorpaySubscriptionId: payload.subscription?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
+  /**
+   * Handle subscription.activated event
+   * Subscription became active
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - WebhookEvent document
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
+   */
   async handleActivated(payload, webhookEvent, subscription) {
-    logger.info('handleActivated called - to be implemented in task 4');
-    return { success: true, message: 'Activated event received' };
+    const Subscription = require('../models/Subscription');
+    const Plan = require('../models/Plan');
+
+    try {
+      const subscriptionEntity = payload.subscription.entity;
+      const paymentEntity = payload.payment?.entity;
+
+      logger.info('Processing subscription.activated event', {
+        razorpaySubscriptionId: subscriptionEntity.id,
+        subscriptionId: subscription?._id,
+        paymentId: paymentEntity?.id
+      });
+
+      // Create subscription if new, or update existing
+      if (!subscription) {
+        // Find user by razorpayCustomerId
+        const User = require('../models/User');
+        const user = await User.findOne({ razorpayCustomerId: subscriptionEntity.customer_id });
+
+        if (!user) {
+          throw new Error(`User not found for Razorpay customer ID: ${subscriptionEntity.customer_id}`);
+        }
+
+        // Find plan by razorpayPlanId
+        const plan = await Plan.findOne({ razorpayPlanId: subscriptionEntity.plan_id });
+
+        if (!plan) {
+          throw new Error(`Plan not found for Razorpay plan ID: ${subscriptionEntity.plan_id}`);
+        }
+
+        // Create new subscription
+        subscription = await Subscription.create({
+          userId: user._id,
+          planId: plan._id,
+          razorpaySubscriptionId: subscriptionEntity.id,
+          razorpayCustomerId: subscriptionEntity.customer_id,
+          status: 'active',
+          currentPeriodStart: new Date(subscriptionEntity.current_start * 1000),
+          currentPeriodEnd: new Date(subscriptionEntity.current_end * 1000),
+          billing: {
+            amount: plan.pricing.amount,
+            currency: plan.pricing.currency,
+            interval: plan.pricing.interval,
+            intervalCount: plan.pricing.intervalCount || 1
+          },
+          paidCount: subscriptionEntity.paid_count || 0,
+          totalCount: subscriptionEntity.total_count || 0,
+          remainingCount: subscriptionEntity.remaining_count || 0,
+          chargeAt: subscriptionEntity.charge_at ? new Date(subscriptionEntity.charge_at * 1000) : null,
+          startAt: subscriptionEntity.start_at ? new Date(subscriptionEntity.start_at * 1000) : null,
+          endAt: subscriptionEntity.end_at ? new Date(subscriptionEntity.end_at * 1000) : null
+        });
+
+        logger.info('New subscription created from activated event', {
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          planId: subscription.planId
+        });
+      } else {
+        // Update existing subscription
+        subscription.status = 'active';
+        subscription.currentPeriodStart = new Date(subscriptionEntity.current_start * 1000);
+        subscription.currentPeriodEnd = new Date(subscriptionEntity.current_end * 1000);
+        subscription.paidCount = subscriptionEntity.paid_count || subscription.paidCount;
+        subscription.remainingCount = subscriptionEntity.remaining_count || subscription.remainingCount;
+        subscription.chargeAt = subscriptionEntity.charge_at ? new Date(subscriptionEntity.charge_at * 1000) : null;
+
+        await subscription.save();
+
+        logger.info('Subscription updated to active', {
+          subscriptionId: subscription._id,
+          userId: subscription.userId
+        });
+      }
+
+      // Record payment and grant credits atomically
+      if (paymentEntity) {
+        await this.recordPayment(paymentEntity, subscription, true);
+      }
+
+      logger.info('Subscription activated successfully', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        status: subscription.status,
+        currentPeriodEnd: subscription.currentPeriodEnd
+      });
+
+      return {
+        success: true,
+        message: 'Subscription activated successfully',
+        subscriptionId: subscription._id,
+        userId: subscription.userId
+      };
+    } catch (error) {
+      logger.error('Error handling subscription.activated event', {
+        razorpaySubscriptionId: payload.subscription?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
+  /**
+   * Handle subscription.charged event
+   * Recurring payment succeeded
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - WebhookEvent document
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
+   */
   async handleCharged(payload, webhookEvent, subscription) {
-    logger.info('handleCharged called - to be implemented in task 4');
-    return { success: true, message: 'Charged event received' };
+    try {
+      const subscriptionEntity = payload.subscription.entity;
+      const paymentEntity = payload.payment?.entity;
+
+      logger.info('Processing subscription.charged event', {
+        razorpaySubscriptionId: subscriptionEntity.id,
+        subscriptionId: subscription?._id,
+        paymentId: paymentEntity?.id
+      });
+
+      if (!subscription) {
+        throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
+      }
+
+      // Update billing period
+      subscription.currentPeriodStart = new Date(subscriptionEntity.current_start * 1000);
+      subscription.currentPeriodEnd = new Date(subscriptionEntity.current_end * 1000);
+
+      // Update payment tracking
+      subscription.paidCount = subscriptionEntity.paid_count || subscription.paidCount;
+      subscription.remainingCount = subscriptionEntity.remaining_count || subscription.remainingCount;
+      subscription.chargeAt = subscriptionEntity.charge_at ? new Date(subscriptionEntity.charge_at * 1000) : null;
+
+      // Ensure status is active
+      if (subscription.status !== 'active') {
+        subscription.status = 'active';
+      }
+
+      await subscription.save();
+
+      // Record payment with deduplication check and grant credits
+      // This will expire old credits and grant new credits atomically
+      if (paymentEntity) {
+        await this.recordPayment(paymentEntity, subscription, true);
+      }
+
+      logger.info('Subscription charged successfully', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        paidCount: subscription.paidCount,
+        currentPeriodEnd: subscription.currentPeriodEnd
+      });
+
+      return {
+        success: true,
+        message: 'Subscription charged successfully',
+        subscriptionId: subscription._id,
+        userId: subscription.userId
+      };
+    } catch (error) {
+      logger.error('Error handling subscription.charged event', {
+        razorpaySubscriptionId: payload.subscription?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
+  /**
+   * Handle subscription.pending event
+   * Payment failed, retries in progress
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - WebhookEvent document
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
+   */
   async handlePending(payload, webhookEvent, subscription) {
-    logger.info('handlePending called - to be implemented in task 4');
-    return { success: true, message: 'Pending event received' };
+    try {
+      const subscriptionEntity = payload.subscription.entity;
+
+      logger.info('Processing subscription.pending event', {
+        razorpaySubscriptionId: subscriptionEntity.id,
+        subscriptionId: subscription?._id,
+        authAttempts: subscriptionEntity.auth_attempts
+      });
+
+      if (!subscription) {
+        throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
+      }
+
+      // Set status to 'pending'
+      subscription.status = 'pending';
+
+      // Increment authAttempts
+      subscription.authAttempts = subscriptionEntity.auth_attempts || (subscription.authAttempts + 1);
+
+      await subscription.save();
+
+      // Do NOT expire credits - wait for halted or success
+      logger.info('Subscription set to pending, awaiting payment retry', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        authAttempts: subscription.authAttempts,
+        status: subscription.status
+      });
+
+      return {
+        success: true,
+        message: 'Subscription pending, awaiting payment retry',
+        subscriptionId: subscription._id,
+        userId: subscription.userId
+      };
+    } catch (error) {
+      logger.error('Error handling subscription.pending event', {
+        razorpaySubscriptionId: payload.subscription?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
+  /**
+   * Handle subscription.halted event
+   * All retry attempts exhausted
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - WebhookEvent document
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
+   */
   async handleHalted(payload, webhookEvent, subscription) {
-    logger.info('handleHalted called - to be implemented in task 4');
-    return { success: true, message: 'Halted event received' };
+    const CreditService = require('../services/creditService');
+
+    try {
+      const subscriptionEntity = payload.subscription.entity;
+
+      logger.info('Processing subscription.halted event', {
+        razorpaySubscriptionId: subscriptionEntity.id,
+        subscriptionId: subscription?._id,
+        authAttempts: subscriptionEntity.auth_attempts
+      });
+
+      if (!subscription) {
+        throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
+      }
+
+      // Set status to 'halted'
+      subscription.status = 'halted';
+      subscription.authAttempts = subscriptionEntity.auth_attempts || subscription.authAttempts;
+
+      await subscription.save();
+
+      // Expire credits immediately using creditService
+      const creditService = new CreditService();
+      await creditService.expireSubscriptionCredits(new Date());
+
+      logger.info('Subscription halted, credits expired immediately', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        authAttempts: subscription.authAttempts,
+        status: subscription.status
+      });
+
+      return {
+        success: true,
+        message: 'Subscription halted, credits expired',
+        subscriptionId: subscription._id,
+        userId: subscription.userId
+      };
+    } catch (error) {
+      logger.error('Error handling subscription.halted event', {
+        razorpaySubscriptionId: payload.subscription?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
+  /**
+   * Handle subscription.completed event
+   * All billing cycles completed
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - WebhookEvent document
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
+   */
   async handleCompleted(payload, webhookEvent, subscription) {
-    logger.info('handleCompleted called - to be implemented in task 4');
-    return { success: true, message: 'Completed event received' };
+    try {
+      const subscriptionEntity = payload.subscription.entity;
+
+      logger.info('Processing subscription.completed event', {
+        razorpaySubscriptionId: subscriptionEntity.id,
+        subscriptionId: subscription?._id
+      });
+
+      if (!subscription) {
+        throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
+      }
+
+      // Set status to 'completed'
+      subscription.status = 'completed';
+
+      // Set endedAt timestamp
+      subscription.endedAt = subscriptionEntity.ended_at
+        ? new Date(subscriptionEntity.ended_at * 1000)
+        : new Date();
+
+      await subscription.save();
+
+      // Do NOT expire credits immediately - let them use until currentPeriodEnd
+      logger.info('Subscription completed, credits valid until period end', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        status: subscription.status,
+        endedAt: subscription.endedAt,
+        currentPeriodEnd: subscription.currentPeriodEnd
+      });
+
+      return {
+        success: true,
+        message: 'Subscription completed, credits valid until period end',
+        subscriptionId: subscription._id,
+        userId: subscription.userId
+      };
+    } catch (error) {
+      logger.error('Error handling subscription.completed event', {
+        razorpaySubscriptionId: payload.subscription?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
+  /**
+   * Handle subscription.cancelled event
+   * User cancelled subscription
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - WebhookEvent document
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
+   */
   async handleCancelled(payload, webhookEvent, subscription) {
-    logger.info('handleCancelled called - to be implemented in task 4');
-    return { success: true, message: 'Cancelled event received' };
+    try {
+      const subscriptionEntity = payload.subscription.entity;
+
+      logger.info('Processing subscription.cancelled event', {
+        razorpaySubscriptionId: subscriptionEntity.id,
+        subscriptionId: subscription?._id
+      });
+
+      if (!subscription) {
+        throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
+      }
+
+      // Set status to 'cancelled'
+      subscription.status = 'cancelled';
+
+      // Set endedAt timestamp
+      subscription.endedAt = subscriptionEntity.ended_at
+        ? new Date(subscriptionEntity.ended_at * 1000)
+        : new Date();
+
+      // Set cancelledAt if not already set
+      if (!subscription.cancelledAt) {
+        subscription.cancelledAt = new Date();
+      }
+
+      await subscription.save();
+
+      // Do NOT expire credits immediately - let them use until currentPeriodEnd
+      logger.info('Subscription cancelled, credits valid until period end', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        status: subscription.status,
+        endedAt: subscription.endedAt,
+        cancelledAt: subscription.cancelledAt,
+        currentPeriodEnd: subscription.currentPeriodEnd
+      });
+
+      return {
+        success: true,
+        message: 'Subscription cancelled, credits valid until period end',
+        subscriptionId: subscription._id,
+        userId: subscription.userId
+      };
+    } catch (error) {
+      logger.error('Error handling subscription.cancelled event', {
+        razorpaySubscriptionId: payload.subscription?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
+  /**
+   * Handle payment.failed event
+   * Payment attempt failed
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - WebhookEvent document
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
+   */
   async handlePaymentFailed(payload, webhookEvent, subscription) {
-    logger.info('handlePaymentFailed called - to be implemented in task 4');
-    return { success: true, message: 'Payment failed event received' };
+    const Payment = require('../models/Payment');
+
+    try {
+      const paymentEntity = payload.payment.entity;
+
+      logger.info('Processing payment.failed event', {
+        razorpayPaymentId: paymentEntity.id,
+        subscriptionId: subscription?._id,
+        errorCode: paymentEntity.error_code,
+        errorDescription: paymentEntity.error_description
+      });
+
+      // Record failed payment with error details
+      const paymentData = {
+        razorpayPaymentId: paymentEntity.id,
+        razorpayInvoiceId: paymentEntity.invoice_id,
+        subscriptionId: subscription?._id,
+        userId: subscription?.userId,
+        amount: paymentEntity.amount / 100, // Convert from paise to rupees
+        currency: paymentEntity.currency,
+        status: 'failed',
+        method: paymentEntity.method,
+        errorCode: paymentEntity.error_code,
+        errorDescription: paymentEntity.error_description,
+        webhookData: paymentEntity,
+        processed: true, // Mark as processed since we're recording the failure
+        processedAt: new Date()
+      };
+
+      const payment = await Payment.createOrGet(paymentData);
+
+      // Do not change subscription status - pending/halted handles that
+      logger.info('Failed payment recorded', {
+        paymentId: payment.razorpayPaymentId,
+        subscriptionId: subscription?._id,
+        userId: subscription?.userId,
+        errorCode: paymentEntity.error_code,
+        errorDescription: paymentEntity.error_description
+      });
+
+      return {
+        success: true,
+        message: 'Failed payment recorded',
+        paymentId: payment.razorpayPaymentId,
+        subscriptionId: subscription?._id
+      };
+    } catch (error) {
+      logger.error('Error handling payment.failed event', {
+        razorpayPaymentId: payload.payment?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
   }
 
   /**
