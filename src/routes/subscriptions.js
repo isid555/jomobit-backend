@@ -8,6 +8,188 @@ const router = express.Router();
 
 /**
  * @swagger
+ * /api/subscriptions/create:
+ *   post:
+ *     summary: Create new subscription
+ *     description: Create a new subscription for the authenticated user with a specific plan
+ *     tags: [Subscriptions]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - planId
+ *             properties:
+ *               planId:
+ *                 type: string
+ *                 description: Plan identifier (e.g., 'free', 'plus', 'pro')
+ *                 example: 'pro'
+ *               totalCount:
+ *                 type: integer
+ *                 description: Total number of billing cycles (default 1 for unlimited)
+ *                 minimum: 1
+ *                 default: 1
+ *                 example: 1
+ *               customerNotify:
+ *                 type: boolean
+ *                 description: Whether to notify customer via email/SMS
+ *                 default: true
+ *                 example: true
+ *               notes:
+ *                 type: object
+ *                 description: Additional notes to attach to subscription
+ *                 example:
+ *                   source: 'web_app'
+ *                   campaign: 'summer_sale'
+ *           examples:
+ *             create_pro_subscription:
+ *               summary: Create Pro plan subscription
+ *               value:
+ *                 planId: 'pro'
+ *                 totalCount: 1
+ *                 customerNotify: true
+ *             create_plus_subscription:
+ *               summary: Create Plus plan subscription
+ *               value:
+ *                 planId: 'plus'
+ *                 totalCount: 12
+ *                 customerNotify: false
+ *     responses:
+ *       201:
+ *         description: Subscription created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: 'Subscription created successfully. Please complete payment using the provided URL.'
+ *                 subscription:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                       example: '507f1f77bcf86cd799439011'
+ *                     razorpaySubscriptionId:
+ *                       type: string
+ *                       example: 'sub_1234567890abcdef'
+ *                     short_url:
+ *                       type: string
+ *                       example: 'https://rzp.io/i/abc123'
+ *                     status:
+ *                       type: string
+ *                       example: 'created'
+ *                     billing:
+ *                       type: object
+ *                       properties:
+ *                         amount:
+ *                           type: number
+ *                           example: 5900
+ *                         currency:
+ *                           type: string
+ *                           example: 'INR'
+ *                         interval:
+ *                           type: string
+ *                           example: 'monthly'
+ *                         intervalCount:
+ *                           type: number
+ *                           example: 1
+ *                     totalCount:
+ *                       type: number
+ *                       example: 1
+ *                     paidCount:
+ *                       type: number
+ *                       example: 0
+ *                     remainingCount:
+ *                       type: number
+ *                       example: 1
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                 plan:
+ *                   $ref: '#/components/schemas/Plan'
+ *       400:
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               missing_plan_id:
+ *                 summary: Missing plan ID
+ *                 value:
+ *                   success: false
+ *                   error: 'Validation error'
+ *                   message: 'Plan ID is required'
+ *               invalid_plan:
+ *                 summary: Invalid plan ID
+ *                 value:
+ *                   success: false
+ *                   error: 'Plan not found'
+ *                   message: 'Invalid plan ID provided'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error: 'User not found'
+ *               message: 'User profile not found in database'
+ *       409:
+ *         description: Active subscription already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: 'Active subscription exists'
+ *                 message:
+ *                   type: string
+ *                   example: 'User already has an active subscription'
+ *                 subscription:
+ *                   $ref: '#/components/schemas/Subscription'
+ *       500:
+ *         description: Internal server error or Razorpay error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               razorpay_error:
+ *                 summary: Razorpay API error
+ *                 value:
+ *                   success: false
+ *                   error: 'Razorpay error'
+ *                   message: 'Failed to create subscription in Razorpay'
+ *                   details: 'API key is invalid'
+ *               internal_error:
+ *                 summary: Internal server error
+ *                 value:
+ *                   success: false
+ *                   error: 'Internal server error'
+ *                   message: 'Failed to create subscription'
+ */
+router.post('/create', authenticate, subscriptionController.createSubscription);
+
+/**
+ * @swagger
  * /api/subscriptions/current:
  *   get:
  *     summary: Get current subscription

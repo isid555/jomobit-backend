@@ -11,6 +11,7 @@ class SubscriptionController {
     this.subscriptionService = new SubscriptionService();
     
     // Bind all methods that use 'this' to preserve context
+    this.createSubscription = this.createSubscription.bind(this);
     this.getCurrentSubscription = this.getCurrentSubscription.bind(this);
     this.getSubscriptionHistory = this.getSubscriptionHistory.bind(this);
     this.upgradeSubscription = this.upgradeSubscription.bind(this);
@@ -22,6 +23,194 @@ class SubscriptionController {
     this.getSubscriptionAnalytics = this.getSubscriptionAnalytics.bind(this);
     this.getAdminSubscriptions = this.getAdminSubscriptions.bind(this);
     this.processScheduledCancellations = this.processScheduledCancellations.bind(this);
+  }
+
+  /**
+   * Create new subscription
+   * POST /api/subscriptions/create
+   */
+  async createSubscription(req, res) {
+    try {
+      const userId = req.user.id; // Auth0 ID
+      const { planId, totalCount = 1, customerNotify = true, notes = {} } = req.body;
+
+      // Validate planId
+      if (!planId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Validation error',
+          message: 'Plan ID is required'
+        });
+      }
+
+      // Get user by Auth0 ID
+      const UserService = require('../services/userService');
+      const userService = new UserService();
+      const userResult = await userService.getUserByAuth0Id(userId);
+      const user = userResult.user;
+      const actualUserId = user._id;
+
+      // Fetch Plan from database to get razorpayPlanId, pricing, and features
+      const plan = await Plan.getByPlanId(planId);
+      if (!plan) {
+        return res.status(400).json({
+          success: false,
+          error: 'Plan not found',
+          message: 'Invalid plan ID provided'
+        });
+      }
+
+      // Check for existing active subscription
+      const Subscription = require('../models/Subscription');
+      const existingSubscription = await Subscription.getUserActiveSubscription(actualUserId);
+      if (existingSubscription) {
+        return res.status(409).json({
+          success: false,
+          error: 'Active subscription exists',
+          message: 'User already has an active subscription',
+          subscription: existingSubscription.toObject()
+        });
+      }
+
+      // Get or create Razorpay customer using user email and name
+      let razorpayCustomerId;
+      try {
+        // Try to find existing customer by email
+        const customers = await razorpay.customers.all({ email: user.email });
+        
+        if (customers.items && customers.items.length > 0) {
+          razorpayCustomerId = customers.items[0].id;
+          logger.info('Found existing Razorpay customer', {
+            customerId: razorpayCustomerId,
+            email: user.email
+          });
+        } else {
+          // Create new customer
+          const customer = await razorpay.customers.create({
+            name: user.metadata?.name || user.email,
+            email: user.email,
+            notes: {
+              userId: actualUserId.toString()
+            }
+          });
+          razorpayCustomerId = customer.id;
+          logger.info('Created new Razorpay customer', {
+            customerId: razorpayCustomerId,
+            email: user.email
+          });
+        }
+      } catch (error) {
+        logger.error('Error creating/fetching Razorpay customer:', error);
+        return res.status(500).json({
+          success: false,
+          error: 'Razorpay error',
+          message: 'Failed to create or fetch customer in Razorpay'
+        });
+      }
+
+      // Create Razorpay subscription with plan_id, customer_id, total_count, customer_notify
+      let razorpaySubscription;
+      try {
+        razorpaySubscription = await razorpay.subscriptions.create({
+          plan_id: plan.razorpayPlanId,
+          customer_id: razorpayCustomerId,
+          total_count: totalCount,
+          customer_notify: customerNotify ? 1 : 0,
+          notes: {
+            userId: actualUserId.toString(),
+            planId: plan.planId,
+            ...notes
+          }
+        });
+
+        logger.info('Created Razorpay subscription', {
+          razorpaySubscriptionId: razorpaySubscription.id,
+          planId: plan.planId,
+          userId: actualUserId
+        });
+      } catch (error) {
+        logger.error('Error creating Razorpay subscription:', error);
+        return res.status(500).json({
+          success: false,
+          error: 'Razorpay error',
+          message: 'Failed to create subscription in Razorpay',
+          details: error.message
+        });
+      }
+
+      // Create local Subscription record with status='created' and billing details from Plan
+      const subscriptionData = {
+        userId: actualUserId,
+        planId: plan._id,
+        razorpaySubscriptionId: razorpaySubscription.id,
+        razorpayCustomerId: razorpayCustomerId,
+        status: 'created',
+        billing: {
+          amount: plan.pricing.amount,
+          currency: plan.pricing.currency,
+          interval: plan.pricing.interval,
+          intervalCount: plan.pricing.intervalCount
+        },
+        shortUrl: razorpaySubscription.short_url,
+        totalCount: razorpaySubscription.total_count,
+        paidCount: razorpaySubscription.paid_count || 0,
+        remainingCount: razorpaySubscription.remaining_count || totalCount,
+        startAt: razorpaySubscription.start_at ? new Date(razorpaySubscription.start_at * 1000) : null,
+        endAt: razorpaySubscription.end_at ? new Date(razorpaySubscription.end_at * 1000) : null,
+        chargeAt: razorpaySubscription.charge_at ? new Date(razorpaySubscription.charge_at * 1000) : null
+      };
+
+      const subscription = await Subscription.createSubscription(subscriptionData);
+
+      logger.info('Local subscription created', {
+        subscriptionId: subscription._id,
+        razorpaySubscriptionId: razorpaySubscription.id,
+        userId: actualUserId,
+        planId: plan.planId
+      });
+
+      // Return subscription with razorpaySubscriptionId, short_url, and plan details
+      res.status(201).json({
+        success: true,
+        message: 'Subscription created successfully. Please complete payment using the provided URL.',
+        subscription: {
+          _id: subscription._id,
+          razorpaySubscriptionId: razorpaySubscription.id,
+          short_url: razorpaySubscription.short_url,
+          status: subscription.status,
+          billing: subscription.billing,
+          totalCount: subscription.totalCount,
+          paidCount: subscription.paidCount,
+          remainingCount: subscription.remainingCount,
+          createdAt: subscription.createdAt
+        },
+        plan: {
+          _id: plan._id,
+          name: plan.name,
+          planId: plan.planId,
+          description: plan.description,
+          pricing: plan.pricing,
+          features: plan.features,
+          tier: plan.tier
+        }
+      });
+
+    } catch (error) {
+      if (error.name === 'UserNotFoundError') {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found',
+          message: 'User profile not found in database'
+        });
+      }
+
+      logger.error('Error creating subscription:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: 'Failed to create subscription'
+      });
+    }
   }
 
   /**
