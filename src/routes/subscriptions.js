@@ -261,6 +261,76 @@ router.post('/create', authenticate, subscriptionController.createSubscription);
  *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/current', authenticate, subscriptionController.getCurrentSubscription);
+
+/**
+ * @swagger
+ * /api/subscriptions/{id}:
+ *   get:
+ *     summary: Get subscription by ID
+ *     description: Retrieve a specific subscription by its ID with full details
+ *     tags: [Subscriptions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Subscription ID
+ *         schema:
+ *           type: string
+ *           example: '507f1f77bcf86cd799439011'
+ *     responses:
+ *       200:
+ *         description: Subscription retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 subscription:
+ *                   $ref: '#/components/schemas/Subscription'
+ *                 plan:
+ *                   $ref: '#/components/schemas/Plan'
+ *       400:
+ *         description: Invalid subscription ID format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error: 'Invalid subscription ID'
+ *               message: 'Invalid subscription ID format'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Not authorized to view this subscription
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error: 'Forbidden'
+ *               message: 'You are not authorized to view this subscription'
+ *       404:
+ *         description: Subscription not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error: 'Subscription not found'
+ *               message: 'Subscription not found'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
+router.get('/:id', authenticate, subscriptionController.getSubscriptionById);
+
 /**
  * @swagger
  * /api/subscriptions/history:

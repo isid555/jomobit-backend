@@ -13,6 +13,7 @@ class SubscriptionController {
     // Bind all methods that use 'this' to preserve context
     this.createSubscription = this.createSubscription.bind(this);
     this.getCurrentSubscription = this.getCurrentSubscription.bind(this);
+    this.getSubscriptionById = this.getSubscriptionById.bind(this);
     this.getSubscriptionHistory = this.getSubscriptionHistory.bind(this);
     this.upgradeSubscription = this.upgradeSubscription.bind(this);
     this.cancelSubscription = this.cancelSubscription.bind(this);
@@ -231,16 +232,38 @@ class SubscriptionController {
       const subscription = await Subscription.getUserActiveSubscription(actualUserId);
 
       if (!subscription) {
-        return res.json({
-          success: true,
-          subscription: null,
+        return res.status(404).json({
+          success: false,
+          error: 'No active subscription',
           message: 'No active subscription found'
         });
       }
 
+      // Return subscription with plan, status, currentPeriodEnd, cancelAtPeriodEnd, scheduledChange
       res.json({
         success: true,
-        subscription: subscription.toObject()
+        subscription: {
+          _id: subscription._id,
+          userId: subscription.userId,
+          status: subscription.status,
+          currentPeriodStart: subscription.currentPeriodStart,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          cancelledAt: subscription.cancelledAt,
+          scheduledChange: subscription.scheduledChange,
+          billing: subscription.billing,
+          createdAt: subscription.createdAt,
+          updatedAt: subscription.updatedAt
+        },
+        plan: subscription.planId ? {
+          _id: subscription.planId._id,
+          name: subscription.planId.name,
+          planId: subscription.planId.planId,
+          description: subscription.planId.description,
+          pricing: subscription.planId.pricing,
+          features: subscription.planId.features,
+          tier: subscription.planId.tier
+        } : null
       });
 
     } catch (error) {
@@ -257,6 +280,101 @@ class SubscriptionController {
         success: false,
         error: 'Internal server error',
         message: 'Failed to fetch current subscription'
+      });
+    }
+  }
+
+  /**
+   * Get subscription by ID
+   * GET /api/subscriptions/:id
+   */
+  async getSubscriptionById(req, res) {
+    try {
+      const userId = req.user.id; // Auth0 ID
+      const { id } = req.params;
+
+      // Get user by Auth0 ID first
+      const UserService = require('../services/userService');
+      const userService = new UserService();
+      const userResult = await userService.getUserByAuth0Id(userId);
+      const actualUserId = userResult.user._id;
+
+      const Subscription = require('../models/Subscription');
+      
+      // Find subscription by ID
+      const subscription = await Subscription.findById(id).populate('planId').exec();
+
+      if (!subscription) {
+        return res.status(404).json({
+          success: false,
+          error: 'Subscription not found',
+          message: 'Subscription not found'
+        });
+      }
+
+      // Verify user owns the subscription (authorization check)
+      if (subscription.userId.toString() !== actualUserId.toString()) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'You are not authorized to view this subscription'
+        });
+      }
+
+      // Return subscription with billing, planChanges, and plan details
+      res.json({
+        success: true,
+        subscription: {
+          _id: subscription._id,
+          userId: subscription.userId,
+          status: subscription.status,
+          razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+          currentPeriodStart: subscription.currentPeriodStart,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          cancelledAt: subscription.cancelledAt,
+          billing: subscription.billing,
+          planChanges: subscription.planChanges,
+          scheduledChange: subscription.scheduledChange,
+          paidCount: subscription.paidCount,
+          totalCount: subscription.totalCount,
+          remainingCount: subscription.remainingCount,
+          createdAt: subscription.createdAt,
+          updatedAt: subscription.updatedAt
+        },
+        plan: subscription.planId ? {
+          _id: subscription.planId._id,
+          name: subscription.planId.name,
+          planId: subscription.planId.planId,
+          description: subscription.planId.description,
+          pricing: subscription.planId.pricing,
+          features: subscription.planId.features,
+          tier: subscription.planId.tier
+        } : null
+      });
+
+    } catch (error) {
+      if (error.name === 'UserNotFoundError') {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found',
+          message: 'User profile not found in database'
+        });
+      }
+
+      if (error.name === 'CastError') {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid subscription ID',
+          message: 'Invalid subscription ID format'
+        });
+      }
+
+      logger.error('Error fetching subscription by ID:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: 'Failed to fetch subscription'
       });
     }
   }
@@ -320,7 +438,7 @@ class SubscriptionController {
   async upgradeSubscription(req, res) {
     try {
       const userId = req.user.id;
-      const { newPlanId, immediate = true, reason = 'user_upgrade' } = req.body;
+      const { newPlanId, reason = 'user_upgrade' } = req.body;
 
       if (!newPlanId) {
         return res.status(400).json({
@@ -336,42 +454,99 @@ class SubscriptionController {
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.subscriptionService.upgradeSubscription(actualUserId, newPlanId, {
-        immediate,
-        reason
-      });
+      // Find user's active subscription
+      const Subscription = require('../models/Subscription');
+      const subscription = await Subscription.getUserActiveSubscription(actualUserId);
 
-      logger.info('Subscription upgraded', {
-        userId: actualUserId,
-        subscriptionId: result.subscription._id,
-        fromPlan: result.oldPlan.planId,
-        toPlan: result.newPlan.planId,
-        changeType: result.changeType,
-        proratedAmount: result.proratedAmount
-      });
-
-      res.json({
-        success: true,
-        message: result.message,
-        subscription: result.subscription,
-        oldPlan: result.oldPlan,
-        newPlan: result.newPlan,
-        changeType: result.changeType,
-        proratedAmount: result.proratedAmount
-      });
-
-    } catch (error) {
-      if (error.name === 'SubscriptionError') {
-        const statusCode = error.code === 'NO_ACTIVE_SUBSCRIPTION' ? 404 : 
-                          error.code === 'PLAN_NOT_FOUND' ? 404 : 400;
-        return res.status(statusCode).json({
+      if (!subscription) {
+        return res.status(404).json({
           success: false,
-          error: error.code,
-          message: error.message,
-          details: error.details
+          error: 'NO_ACTIVE_SUBSCRIPTION',
+          message: 'No active subscription found'
         });
       }
 
+      // Validate newPlanId and fetch new Plan
+      const newPlan = await Plan.getByPlanId(newPlanId);
+      if (!newPlan) {
+        return res.status(400).json({
+          success: false,
+          error: 'PLAN_NOT_FOUND',
+          message: 'Invalid plan ID provided'
+        });
+      }
+
+      // Get current plan
+      const currentPlan = await Plan.findById(subscription.planId);
+      if (!currentPlan) {
+        return res.status(500).json({
+          success: false,
+          error: 'CURRENT_PLAN_NOT_FOUND',
+          message: 'Current plan not found'
+        });
+      }
+
+      // Check if trying to change to the same plan
+      if (currentPlan._id.toString() === newPlan._id.toString()) {
+        return res.status(400).json({
+          success: false,
+          error: 'SAME_PLAN',
+          message: 'Cannot change to the same plan'
+        });
+      }
+
+      // Determine changeType (upgrade if new amount > current, else downgrade)
+      const changeType = newPlan.pricing.amount > currentPlan.pricing.amount ? 'upgrade' : 'downgrade';
+
+      // Create scheduledChange object with newPlanId, changeType, effectiveDate=currentPeriodEnd, requestedAt, reason
+      subscription.scheduledChange = {
+        newPlanId: newPlan._id,
+        changeType: changeType,
+        effectiveDate: subscription.currentPeriodEnd,
+        requestedAt: new Date(),
+        reason: reason
+      };
+
+      await subscription.save();
+
+      logger.info('Plan change scheduled', {
+        userId: actualUserId,
+        subscriptionId: subscription._id,
+        fromPlan: currentPlan.planId,
+        toPlan: newPlan.planId,
+        changeType: changeType,
+        effectiveDate: subscription.currentPeriodEnd
+      });
+
+      // Return subscription with oldPlan, newPlan, changeType, scheduledFor date
+      res.json({
+        success: true,
+        message: `Plan ${changeType} scheduled for ${subscription.currentPeriodEnd.toISOString()}`,
+        subscription: {
+          _id: subscription._id,
+          status: subscription.status,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          scheduledChange: subscription.scheduledChange
+        },
+        oldPlan: {
+          _id: currentPlan._id,
+          name: currentPlan.name,
+          planId: currentPlan.planId,
+          pricing: currentPlan.pricing,
+          features: currentPlan.features
+        },
+        newPlan: {
+          _id: newPlan._id,
+          name: newPlan.name,
+          planId: newPlan.planId,
+          pricing: newPlan.pricing,
+          features: newPlan.features
+        },
+        changeType: changeType,
+        scheduledFor: subscription.currentPeriodEnd
+      });
+
+    } catch (error) {
       if (error.name === 'UserNotFoundError') {
         return res.status(404).json({
           success: false,
@@ -404,36 +579,85 @@ class SubscriptionController {
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.subscriptionService.cancelSubscription(actualUserId, {
-        immediately,
-        reason
-      });
+      // Find user's active subscription
+      const Subscription = require('../models/Subscription');
+      const subscription = await Subscription.getUserActiveSubscription(actualUserId);
 
-      logger.info('Subscription cancelled', {
-        userId: actualUserId,
-        subscriptionId: result.subscription._id,
-        immediately,
-        reason
-      });
-
-      res.json({
-        success: true,
-        message: result.message,
-        subscription: result.subscription,
-        cancelledImmediately: result.cancelledImmediately
-      });
-
-    } catch (error) {
-      if (error.name === 'SubscriptionError') {
-        const statusCode = error.code === 'NO_ACTIVE_SUBSCRIPTION' ? 404 : 400;
-        return res.status(statusCode).json({
+      if (!subscription) {
+        return res.status(404).json({
           success: false,
-          error: error.code,
-          message: error.message,
-          details: error.details
+          error: 'NO_ACTIVE_SUBSCRIPTION',
+          message: 'No active subscription found'
         });
       }
 
+      // If immediately=true: cancel on Razorpay immediately and set status='cancelled'
+      if (immediately) {
+        try {
+          // Cancel on Razorpay
+          await razorpay.subscriptions.cancel(subscription.razorpaySubscriptionId);
+          
+          subscription.status = 'cancelled';
+          subscription.cancelledAt = new Date();
+          if (reason) {
+            subscription.cancellationReason = reason;
+          }
+          await subscription.save();
+
+          logger.info('Subscription cancelled immediately', {
+            userId: actualUserId,
+            subscriptionId: subscription._id,
+            razorpaySubscriptionId: subscription.razorpaySubscriptionId
+          });
+
+          return res.json({
+            success: true,
+            message: 'Subscription cancelled immediately',
+            subscription: {
+              _id: subscription._id,
+              status: subscription.status,
+              cancelledAt: subscription.cancelledAt,
+              accessUntil: subscription.currentPeriodEnd
+            }
+          });
+        } catch (razorpayError) {
+          logger.error('Error cancelling subscription on Razorpay:', razorpayError);
+          return res.status(500).json({
+            success: false,
+            error: 'Razorpay error',
+            message: 'Failed to cancel subscription on Razorpay'
+          });
+        }
+      }
+
+      // If immediately=false: set cancelAtPeriodEnd=true
+      subscription.cancelAtPeriodEnd = true;
+      if (reason) {
+        subscription.cancellationReason = reason;
+      }
+      await subscription.save();
+
+      logger.info('Subscription scheduled for cancellation', {
+        userId: actualUserId,
+        subscriptionId: subscription._id,
+        cancelAtPeriodEnd: true,
+        accessUntil: subscription.currentPeriodEnd
+      });
+
+      // Return subscription with cancelledAt and accessUntil dates
+      res.json({
+        success: true,
+        message: 'Subscription will be cancelled at the end of the current billing period',
+        subscription: {
+          _id: subscription._id,
+          status: subscription.status,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          cancelledAt: null,
+          accessUntil: subscription.currentPeriodEnd
+        }
+      });
+
+    } catch (error) {
       if (error.name === 'UserNotFoundError') {
         return res.status(404).json({
           success: false,
