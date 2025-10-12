@@ -20,6 +20,7 @@ const { setupSwagger } = require('./config/swagger');
 const { getSecurityConfig, validateSecurityConfig } = require('./config/security');
 const databaseConnection = require('./config/database');
 const redisConnection = require('./config/redis');
+const subscriptionJobs = require('./jobs/subscriptionJobs');
 
 class App {
   constructor() {
@@ -269,6 +270,10 @@ class App {
       // await redisConnection.connect();
       
       logger.info('All database connections established');
+
+      // Initialize subscription jobs after MongoDB connection succeeds
+      subscriptionJobs.initializeJobs();
+      logger.info('Subscription jobs initialized');
     } catch (error) {
       logger.error('Database connection failed:', error);
       throw error;
@@ -317,6 +322,10 @@ class App {
           logger.info('HTTP server closed');
           
           try {
+            // Stop subscription jobs
+            subscriptionJobs.stopAllJobs();
+            logger.info('Subscription jobs stopped');
+
             // Close database connections
             await databaseConnection.disconnect();
             await redisConnection.disconnect();
