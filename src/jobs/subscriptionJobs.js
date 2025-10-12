@@ -95,12 +95,19 @@ class SubscriptionJobs {
    */
   async runCreditExpiryJob() {
     const startTime = Date.now();
-    logger.info('Starting credit expiry job');
+    const startTimeFormatted = new Date().toISOString();
+    
+    logger.info('Scheduled job started: credit expiry', {
+      jobName: 'creditExpiry',
+      startTime: startTimeFormatted,
+      schedule: 'hourly'
+    });
 
     let stats = {
       subscriptionsProcessed: 0,
       creditsExpired: 0,
-      errors: 0
+      errors: 0,
+      subscriptionsChecked: 0
     };
 
     try {
@@ -111,7 +118,13 @@ class SubscriptionJobs {
         status: { $nin: ['active', 'cancelled', 'completed'] }
       }).populate('userId');
 
-      logger.info(`Found ${subscriptions.length} subscriptions to check for credit expiry`);
+      stats.subscriptionsChecked = subscriptions.length;
+
+      logger.info('Scheduled job: credit expiry - found subscriptions to check', {
+        jobName: 'creditExpiry',
+        subscriptionsFound: subscriptions.length,
+        checkDate: now.toISOString()
+      });
 
       for (const subscription of subscriptions) {
         try {
@@ -127,17 +140,21 @@ class SubscriptionJobs {
             stats.subscriptionsProcessed++;
             stats.creditsExpired += result.totalExpired || 0;
 
-            logger.info('Credits expired for subscription', {
+            logger.info('Scheduled job: credit expiry - credits expired for subscription', {
+              jobName: 'creditExpiry',
               subscriptionId: subscription._id,
               userId: subscription.userId,
               creditsExpired: result.totalExpired,
-              expiryDate: subscription.currentPeriodEnd
+              expiryDate: subscription.currentPeriodEnd,
+              subscriptionStatus: subscription.status
             });
           }
         } catch (error) {
           stats.errors++;
-          logger.error('Error expiring credits for subscription', {
+          logger.error('Scheduled job: credit expiry - error processing subscription', {
+            jobName: 'creditExpiry',
             subscriptionId: subscription._id,
+            userId: subscription.userId,
             error: error.message,
             stack: error.stack
           });
@@ -145,14 +162,30 @@ class SubscriptionJobs {
       }
 
       const executionTime = Date.now() - startTime;
-      logger.info('Credit expiry job completed', {
-        ...stats,
-        executionTimeMs: executionTime
+      const endTimeFormatted = new Date().toISOString();
+      
+      logger.info('Scheduled job completed: credit expiry', {
+        jobName: 'creditExpiry',
+        startTime: startTimeFormatted,
+        endTime: endTimeFormatted,
+        executionTimeMs: executionTime,
+        subscriptionsChecked: stats.subscriptionsChecked,
+        subscriptionsProcessed: stats.subscriptionsProcessed,
+        creditsExpired: stats.creditsExpired,
+        errors: stats.errors,
+        success: stats.errors === 0
       });
 
       return stats;
     } catch (error) {
-      logger.error('Error running credit expiry job', {
+      const executionTime = Date.now() - startTime;
+      const endTimeFormatted = new Date().toISOString();
+      
+      logger.error('Scheduled job failed: credit expiry', {
+        jobName: 'creditExpiry',
+        startTime: startTimeFormatted,
+        endTime: endTimeFormatted,
+        executionTimeMs: executionTime,
         error: error.message,
         stack: error.stack
       });
@@ -166,19 +199,29 @@ class SubscriptionJobs {
    */
   async runReconciliationJob() {
     const startTime = Date.now();
-    logger.info('Starting subscription reconciliation job');
+    const startTimeFormatted = new Date().toISOString();
+    
+    logger.info('Scheduled job started: subscription reconciliation', {
+      jobName: 'reconciliation',
+      startTime: startTimeFormatted,
+      schedule: 'daily at 1 AM'
+    });
 
     // Check if reconciliation is enabled
     const reconciliationEnabled = process.env.SUBSCRIPTION_RECONCILIATION_ENABLED !== 'false';
     if (!reconciliationEnabled) {
-      logger.info('Subscription reconciliation is disabled');
+      logger.info('Scheduled job skipped: subscription reconciliation disabled', {
+        jobName: 'reconciliation',
+        reason: 'disabled_by_config'
+      });
       return { skipped: true };
     }
 
     let stats = {
       totalChecked: 0,
       mismatchesFound: 0,
-      errors: 0
+      errors: 0,
+      batchesProcessed: 0
     };
 
     try {
@@ -200,9 +243,14 @@ class SubscriptionJobs {
           break;
         }
 
-        logger.info(`Processing batch of ${subscriptions.length} subscriptions`, {
+        stats.batchesProcessed++;
+
+        logger.info('Scheduled job: reconciliation - processing batch', {
+          jobName: 'reconciliation',
+          batchNumber: stats.batchesProcessed,
+          batchSize: subscriptions.length,
           skip,
-          batchSize
+          limit: batchSize
         });
 
         for (const subscription of subscriptions) {
@@ -219,11 +267,14 @@ class SubscriptionJobs {
             
             if (subscription.status !== razorpayStatus) {
               // Mismatch found - update local subscription
-              logger.warn('Subscription status mismatch detected', {
+              logger.warn('Scheduled job: reconciliation - status mismatch detected', {
+                jobName: 'reconciliation',
                 subscriptionId: subscription._id,
                 razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+                userId: subscription.userId,
                 localStatus: subscription.status,
-                razorpayStatus: razorpayStatus
+                razorpayStatus: razorpayStatus,
+                mismatchType: 'status'
               });
 
               subscription.status = razorpayStatus;
@@ -251,17 +302,23 @@ class SubscriptionJobs {
               await subscription.save();
               stats.mismatchesFound++;
 
-              logger.info('Subscription reconciled', {
+              logger.info('Scheduled job: reconciliation - subscription reconciled', {
+                jobName: 'reconciliation',
                 subscriptionId: subscription._id,
-                updatedStatus: razorpayStatus
+                userId: subscription.userId,
+                oldStatus: subscription.status,
+                newStatus: razorpayStatus
               });
             }
           } catch (error) {
             stats.errors++;
-            logger.error('Error reconciling subscription', {
+            logger.error('Scheduled job: reconciliation - error processing subscription', {
+              jobName: 'reconciliation',
               subscriptionId: subscription._id,
               razorpaySubscriptionId: subscription.razorpaySubscriptionId,
-              error: error.message
+              userId: subscription.userId,
+              error: error.message,
+              stack: error.stack
             });
           }
         }
@@ -270,14 +327,30 @@ class SubscriptionJobs {
       }
 
       const executionTime = Date.now() - startTime;
-      logger.info('Subscription reconciliation job completed', {
-        ...stats,
-        executionTimeMs: executionTime
+      const endTimeFormatted = new Date().toISOString();
+      
+      logger.info('Scheduled job completed: subscription reconciliation', {
+        jobName: 'reconciliation',
+        startTime: startTimeFormatted,
+        endTime: endTimeFormatted,
+        executionTimeMs: executionTime,
+        batchesProcessed: stats.batchesProcessed,
+        totalChecked: stats.totalChecked,
+        mismatchesFound: stats.mismatchesFound,
+        errors: stats.errors,
+        success: stats.errors === 0
       });
 
       return stats;
     } catch (error) {
-      logger.error('Error running subscription reconciliation job', {
+      const executionTime = Date.now() - startTime;
+      const endTimeFormatted = new Date().toISOString();
+      
+      logger.error('Scheduled job failed: subscription reconciliation', {
+        jobName: 'reconciliation',
+        startTime: startTimeFormatted,
+        endTime: endTimeFormatted,
+        executionTimeMs: executionTime,
         error: error.message,
         stack: error.stack
       });
@@ -291,11 +364,18 @@ class SubscriptionJobs {
    */
   async runScheduledPlanChangeJob() {
     const startTime = Date.now();
-    logger.info('Starting scheduled plan change job');
+    const startTimeFormatted = new Date().toISOString();
+    
+    logger.info('Scheduled job started: plan changes', {
+      jobName: 'scheduledPlanChange',
+      startTime: startTimeFormatted,
+      schedule: 'every 6 hours'
+    });
 
     let stats = {
       planChangesProcessed: 0,
-      errors: 0
+      errors: 0,
+      changesFound: 0
     };
 
     try {
@@ -306,7 +386,13 @@ class SubscriptionJobs {
         'scheduledChange.newPlanId': { $exists: true }
       }).populate('planId scheduledChange.newPlanId');
 
-      logger.info(`Found ${subscriptions.length} scheduled plan changes to process`);
+      stats.changesFound = subscriptions.length;
+
+      logger.info('Scheduled job: plan changes - found changes to process', {
+        jobName: 'scheduledPlanChange',
+        changesFound: subscriptions.length,
+        checkDate: now.toISOString()
+      });
 
       for (const subscription of subscriptions) {
         try {
@@ -320,12 +406,17 @@ class SubscriptionJobs {
             throw new Error(`New plan not found: ${newPlan}`);
           }
 
-          logger.info('Processing scheduled plan change', {
+          logger.info('Scheduled job: plan changes - processing change', {
+            jobName: 'scheduledPlanChange',
             subscriptionId: subscription._id,
             razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+            userId: subscription.userId,
             oldPlanId: oldPlan._id,
+            oldPlanName: oldPlan.name,
             newPlanId: newPlanDetails._id,
-            changeType: subscription.scheduledChange.changeType
+            newPlanName: newPlanDetails.name,
+            changeType: subscription.scheduledChange.changeType,
+            effectiveDate: subscription.scheduledChange.effectiveDate
           });
 
           // Update subscription.planId to scheduledChange.newPlanId
@@ -349,14 +440,17 @@ class SubscriptionJobs {
               }
             );
 
-            logger.info('Razorpay subscription updated with new plan', {
+            logger.info('Scheduled job: plan changes - Razorpay updated', {
+              jobName: 'scheduledPlanChange',
               razorpaySubscriptionId: subscription.razorpaySubscriptionId,
               newRazorpayPlanId: newPlanDetails.razorpayPlanId
             });
           } catch (razorpayError) {
-            logger.error('Error updating Razorpay subscription', {
+            logger.error('Scheduled job: plan changes - Razorpay update failed', {
+              jobName: 'scheduledPlanChange',
               razorpaySubscriptionId: subscription.razorpaySubscriptionId,
-              error: razorpayError.message
+              error: razorpayError.message,
+              note: 'Continuing with local update'
             });
             // Continue with local update even if Razorpay update fails
           }
@@ -376,16 +470,20 @@ class SubscriptionJobs {
           await subscription.save();
           stats.planChangesProcessed++;
 
-          logger.info('Scheduled plan change completed', {
+          logger.info('Scheduled job: plan changes - change completed', {
+            jobName: 'scheduledPlanChange',
             subscriptionId: subscription._id,
+            userId: subscription.userId,
             oldPlanName: oldPlan.name,
             newPlanName: newPlanDetails.name,
             changeType: subscription.scheduledChange?.changeType
           });
         } catch (error) {
           stats.errors++;
-          logger.error('Error processing scheduled plan change', {
+          logger.error('Scheduled job: plan changes - error processing change', {
+            jobName: 'scheduledPlanChange',
             subscriptionId: subscription._id,
+            userId: subscription.userId,
             error: error.message,
             stack: error.stack
           });
@@ -393,14 +491,29 @@ class SubscriptionJobs {
       }
 
       const executionTime = Date.now() - startTime;
-      logger.info('Scheduled plan change job completed', {
-        ...stats,
-        executionTimeMs: executionTime
+      const endTimeFormatted = new Date().toISOString();
+      
+      logger.info('Scheduled job completed: plan changes', {
+        jobName: 'scheduledPlanChange',
+        startTime: startTimeFormatted,
+        endTime: endTimeFormatted,
+        executionTimeMs: executionTime,
+        changesFound: stats.changesFound,
+        planChangesProcessed: stats.planChangesProcessed,
+        errors: stats.errors,
+        success: stats.errors === 0
       });
 
       return stats;
     } catch (error) {
-      logger.error('Error running scheduled plan change job', {
+      const executionTime = Date.now() - startTime;
+      const endTimeFormatted = new Date().toISOString();
+      
+      logger.error('Scheduled job failed: plan changes', {
+        jobName: 'scheduledPlanChange',
+        startTime: startTimeFormatted,
+        endTime: endTimeFormatted,
+        executionTimeMs: executionTime,
         error: error.message,
         stack: error.stack
       });

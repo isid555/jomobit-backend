@@ -231,7 +231,15 @@ class CreditService {
   }
 
   async _grantSubscriptionCreditsCore(userId, amount, expiryDate, subscriptionId, paymentId, metadata, session) {
-    logger.info('Granting subscription credits', { userId, amount, expiryDate, paymentId });
+    logger.info('Credit operation: granting subscription credits', {
+      userId,
+      amount,
+      expiryDate,
+      subscriptionId,
+      paymentId,
+      source: metadata.source || 'subscription',
+      operation: 'grant_subscription_credits'
+    });
 
     // Payment deduplication check - if paymentId provided, check if already processed
     if (paymentId) {
@@ -240,11 +248,14 @@ class CreditService {
       const payment = session ? await paymentQuery.session(session) : await paymentQuery;
       
       if (payment && payment.processed) {
-        logger.info('Payment already processed, skipping credit grant', {
+        logger.info('Credit deduplication: payment already processed, skipping credit grant', {
           userId,
           paymentId,
+          subscriptionId,
           creditsGranted: payment.creditsGranted,
-          processedAt: payment.processedAt
+          originalProcessedAt: payment.processedAt,
+          deduplicationDetected: true,
+          operation: 'grant_subscription_credits'
         });
         
         // Return success without processing
@@ -284,10 +295,13 @@ class CreditService {
 
     // ATOMIC OPERATION: Expire old subscription credits first
     if (wallet.subscriptionCredits > 0) {
-      logger.info('Expiring old subscription credits before granting new ones', {
+      logger.info('Credit operation: expiring old subscription credits before granting new ones', {
         userId,
         oldCredits: wallet.subscriptionCredits,
-        oldExpiry: wallet.subscriptionCreditExpiry
+        oldExpiry: wallet.subscriptionCreditExpiry,
+        subscriptionId,
+        reason: 'subscription_renewal',
+        operation: 'expire_before_grant'
       });
 
       // Create expire transaction for old credits
@@ -317,6 +331,13 @@ class CreditService {
       });
 
       await expireTransaction.save(session ? { session } : {});
+
+      logger.info('Credit operation: old subscription credits expired', {
+        userId,
+        creditsExpired: oldSubscriptionCredits,
+        subscriptionId,
+        operation: 'expire_before_grant'
+      });
 
       // Expire the credits
       wallet.subscriptionCredits = 0;
@@ -389,13 +410,16 @@ class CreditService {
       }
     }
 
-    logger.info('Subscription credits granted successfully', {
+    logger.info('Credit operation: subscription credits granted successfully', {
       userId,
       amount,
       expiryDate,
+      subscriptionId,
       oldCreditsExpired: oldSubscriptionCredits,
       newBalance: wallet.totalCredits,
-      paymentId
+      paymentId,
+      source: metadata.source || 'subscription',
+      operation: 'grant_subscription_credits'
     });
 
     return {

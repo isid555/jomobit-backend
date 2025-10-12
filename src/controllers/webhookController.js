@@ -326,6 +326,16 @@ class WebhookController {
     const CreditService = require('../services/creditService');
 
     try {
+      logger.info('Recording payment', {
+        paymentId: paymentEntity.id,
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        amount: paymentEntity.amount / 100,
+        currency: paymentEntity.currency,
+        status: paymentEntity.status,
+        grantCredits
+      });
+
       // Prepare payment data
       const paymentData = {
         razorpayPaymentId: paymentEntity.id,
@@ -354,10 +364,13 @@ class WebhookController {
 
       // Check if payment was already processed
       if (payment.processed) {
-        logger.info('Payment already processed, skipping credit operations', {
+        logger.info('Payment deduplication: already processed, skipping credit operations', {
           paymentId: payment.razorpayPaymentId,
           userId: subscription.userId,
-          creditsGranted: payment.creditsGranted
+          subscriptionId: subscription._id,
+          creditsGranted: payment.creditsGranted,
+          originalProcessedAt: payment.processedAt,
+          deduplicationDetected: true
         });
         return payment;
       }
@@ -367,11 +380,20 @@ class WebhookController {
         await this.grantCreditsForSubscription(subscription, payment);
       }
 
+      logger.info('Payment recorded successfully', {
+        paymentId: payment.razorpayPaymentId,
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        amount: payment.amount,
+        creditsGranted: grantCredits && paymentEntity.status === 'captured'
+      });
+
       return payment;
     } catch (error) {
       logger.error('Error recording payment', {
         paymentId: paymentEntity.id,
         subscriptionId: subscription._id,
+        userId: subscription.userId,
         error: error.message,
         stack: error.stack
       });
@@ -403,21 +425,26 @@ class WebhookController {
       if (creditAmount <= 0) {
         logger.warn('Plan has no credits to grant', {
           planId: plan._id,
-          subscriptionId: subscription._id
+          planName: plan.name,
+          subscriptionId: subscription._id,
+          userId: subscription.userId
         });
         return;
       }
 
       // Expire old subscription credits first
-      logger.info('Expiring old subscription credits before granting new ones', {
-        userId: subscription.userId,
-        subscriptionId: subscription._id
-      });
-
       const CreditWallet = require('../models/CreditWallet');
       const wallet = await CreditWallet.findByUserId(subscription.userId);
 
       if (wallet && wallet.subscriptionCredits > 0) {
+        logger.info('Expiring old subscription credits before granting new ones', {
+          userId: subscription.userId,
+          subscriptionId: subscription._id,
+          oldCredits: wallet.subscriptionCredits,
+          oldExpiry: wallet.subscriptionCreditExpiry,
+          source: 'subscription_renewal'
+        });
+
         await creditService.expireSubscriptionCredits(new Date());
       }
 
@@ -429,7 +456,10 @@ class WebhookController {
         amount: creditAmount,
         expiryDate,
         subscriptionId: subscription._id,
-        paymentId: payment.razorpayPaymentId
+        paymentId: payment.razorpayPaymentId,
+        planId: subscription.planId,
+        planName: plan.name,
+        source: 'subscription_payment'
       });
 
       await creditService.grantSubscriptionCredits(
@@ -453,12 +483,16 @@ class WebhookController {
       logger.info('Credits granted successfully for subscription payment', {
         userId: subscription.userId,
         amount: creditAmount,
+        expiryDate,
         paymentId: payment.razorpayPaymentId,
-        subscriptionId: subscription._id
+        subscriptionId: subscription._id,
+        planName: plan.name,
+        source: 'subscription_payment'
       });
     } catch (error) {
       logger.error('Error granting credits for subscription', {
         subscriptionId: subscription._id,
+        userId: subscription.userId,
         paymentId: payment.razorpayPaymentId,
         error: error.message,
         stack: error.stack
@@ -901,7 +935,7 @@ class WebhookController {
     try {
       const subscriptionEntity = payload.subscription.entity;
 
-      logger.info('Processing subscription.pending event', {
+      logger.warn('Processing subscription.pending event - payment retry in progress', {
         razorpaySubscriptionId: subscriptionEntity.id,
         subscriptionId: subscription?._id,
         authAttempts: subscriptionEntity.auth_attempts
@@ -958,10 +992,12 @@ class WebhookController {
     try {
       const subscriptionEntity = payload.subscription.entity;
 
-      logger.info('Processing subscription.halted event', {
+      logger.error('Processing subscription.halted event - all payment retries exhausted', {
         razorpaySubscriptionId: subscriptionEntity.id,
         subscriptionId: subscription?._id,
-        authAttempts: subscriptionEntity.auth_attempts
+        userId: subscription?.userId,
+        authAttempts: subscriptionEntity.auth_attempts,
+        totalAttempts: subscriptionEntity.auth_attempts
       });
 
       if (!subscription) {
@@ -976,13 +1012,15 @@ class WebhookController {
 
       // Expire credits immediately using creditService
       const creditService = new CreditService();
-      await creditService.expireSubscriptionCredits(new Date());
+      const expiryResult = await creditService.expireSubscriptionCredits(new Date());
 
-      logger.info('Subscription halted, credits expired immediately', {
+      logger.warn('Subscription halted, credits expired immediately', {
         subscriptionId: subscription._id,
         userId: subscription.userId,
         authAttempts: subscription.authAttempts,
-        status: subscription.status
+        status: subscription.status,
+        creditsExpired: expiryResult.totalExpired || 0,
+        reason: 'payment_retries_exhausted'
       });
 
       return {
@@ -1136,11 +1174,19 @@ class WebhookController {
     try {
       const paymentEntity = payload.payment.entity;
 
-      logger.info('Processing payment.failed event', {
+      logger.error('Processing payment.failed event', {
         razorpayPaymentId: paymentEntity.id,
         subscriptionId: subscription?._id,
+        userId: subscription?.userId,
+        amount: paymentEntity.amount / 100,
+        currency: paymentEntity.currency,
+        method: paymentEntity.method,
         errorCode: paymentEntity.error_code,
-        errorDescription: paymentEntity.error_description
+        errorDescription: paymentEntity.error_description,
+        errorSource: paymentEntity.error_source,
+        errorStep: paymentEntity.error_step,
+        errorReason: paymentEntity.error_reason,
+        retryCount: subscription?.authAttempts || 0
       });
 
       // Record failed payment with error details
@@ -1163,12 +1209,16 @@ class WebhookController {
       const payment = await Payment.createOrGet(paymentData);
 
       // Do not change subscription status - pending/halted handles that
-      logger.info('Failed payment recorded', {
+      logger.warn('Failed payment recorded', {
         paymentId: payment.razorpayPaymentId,
         subscriptionId: subscription?._id,
         userId: subscription?.userId,
+        amount: payment.amount,
+        currency: payment.currency,
+        failureReason: paymentEntity.error_description,
         errorCode: paymentEntity.error_code,
-        errorDescription: paymentEntity.error_description
+        retryCount: subscription?.authAttempts || 0,
+        paymentMethod: paymentEntity.method
       });
 
       return {
