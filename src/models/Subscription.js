@@ -29,11 +29,74 @@ const subscriptionSchema = new mongoose.Schema({
     index: true
   },
 
+  // Razorpay customer ID
+  razorpayCustomerId: {
+    type: String,
+    index: true
+  },
+
+  // Razorpay order ID
+  razorpayOrderId: {
+    type: String
+  },
+
+  // Razorpay short URL for payment
+  shortUrl: {
+    type: String
+  },
+
+  // Payment tracking fields
+  authAttempts: {
+    type: Number,
+    default: 0
+  },
+
+  paidCount: {
+    type: Number,
+    default: 0,
+    index: true
+  },
+
+  totalCount: {
+    type: Number,
+    default: 0
+  },
+
+  remainingCount: {
+    type: Number,
+    default: 0
+  },
+
+  // Scheduling fields
+  chargeAt: {
+    type: Date,
+    index: true
+  },
+
+  startAt: {
+    type: Date,
+    index: true
+  },
+
+  endAt: {
+    type: Date,
+    index: true
+  },
+
+  endedAt: {
+    type: Date,
+    index: true
+  },
+
+  expireBy: {
+    type: Date
+  },
+
   // Subscription status
   status: {
     type: String,
-    enum: ['active', 'cancelled', 'expired', 'paused', 'pending'],
-    default: 'pending',
+    enum: ['created', 'authenticated', 'active', 'pending', 'halted', 'cancelled', 'completed', 'expired', 'paused'],
+    default: 'created',
     index: true
   },
 
@@ -196,6 +259,28 @@ const subscriptionSchema = new mongoose.Schema({
     }
   }],
 
+  // Scheduled plan change
+  scheduledChange: {
+    newPlanId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Plan'
+    },
+    changeType: {
+      type: String,
+      enum: ['upgrade', 'downgrade']
+    },
+    effectiveDate: {
+      type: Date
+    },
+    requestedAt: {
+      type: Date
+    },
+    reason: {
+      type: String,
+      trim: true
+    }
+  },
+
   // Metadata
   metadata: {
     type: mongoose.Schema.Types.Mixed,
@@ -235,6 +320,8 @@ subscriptionSchema.index({ userId: 1, status: 1 });
 subscriptionSchema.index({ status: 1, currentPeriodEnd: 1 });
 subscriptionSchema.index({ razorpaySubscriptionId: 1, status: 1 });
 subscriptionSchema.index({ currentPeriodEnd: 1, cancelAtPeriodEnd: 1 });
+subscriptionSchema.index({ razorpayCustomerId: 1 });
+subscriptionSchema.index({ 'scheduledChange.effectiveDate': 1 });
 
 // Pre-save middleware
 subscriptionSchema.pre('save', function (next) {
