@@ -13,6 +13,39 @@ class WebhookController {
     this.subscriptionService = new SubscriptionService();
     this.generationService = new GenerationService();
   }
+
+  // At top of controller
+  parseRawBodyIfNeeded(req) {
+  // If req.body is Buffer (raw), parse
+  if (Buffer.isBuffer(req.body)) {
+    try {
+      const str = req.body.toString('utf8');
+      return JSON.parse(str);
+    } catch (err) {
+      logger.error('Failed to parse raw buffer body', { error: err.message, stack: err.stack });
+      throw new Error('Invalid JSON payload');
+    }
+  }
+
+  // If req.rawBody exists and is string, try parse
+  if (typeof req.rawBody === 'string') {
+    try {
+      return JSON.parse(req.rawBody);
+    } catch (err) {
+      logger.error('Failed to parse req.rawBody string', { error: err.message, stack: err.stack });
+      throw new Error('Invalid JSON payload');
+    }
+  }
+
+  // If req.body is already object, return it
+  if (req.body && typeof req.body === 'object') {
+    return req.body;
+  }
+
+  // otherwise invalid payload
+  throw new Error('Invalid or missing payload');
+  }
+
   /**
    * Verify Auth0 webhook signature
    * @param {Object} req - Express request object
@@ -292,22 +325,59 @@ class WebhookController {
       return false;
     }
 
-    const signature = req.headers['x-razorpay-signature'];
-    if (!signature) {
+    const signatureHeader = req.headers['x-razorpay-signature'];
+    if (!signatureHeader) {
       logger.warn('Missing Razorpay webhook signature');
       return false;
     }
 
-    try {
-      const expectedSignature = crypto
-        .createHmac('sha256', secret)
-        .update(JSON.stringify(req.body))
-        .digest('hex');
+    // ✅ Use the raw body, not JSON.stringify(req.body)
+    // const rawBody = req.rawBody || JSON.stringify(req.body);
+     // Prefer raw buffer:
+    let rawBuffer;
+    if (Buffer.isBuffer(req.body)) {
+      rawBuffer = req.body;
+    } else if (req.rawBody && typeof req.rawBody === 'string') {
+      rawBuffer = Buffer.from(req.rawBody, 'utf8');
+    } else if (req.body && typeof req.body === 'object') {
+      // last resort: this may not match Razorpay's bytes exactly — prefer raw
+      rawBuffer = Buffer.from(JSON.stringify(req.body), 'utf8');
+    } else {
+      logger.warn('No raw payload available for signature verification');
+      return false;
+    }
 
-      return crypto.timingSafeEqual(
-        Buffer.from(expectedSignature, 'hex'),
-        Buffer.from(signature, 'hex')
-      );
+
+    try {
+      // const expectedSignature = crypto
+      //   .createHmac('sha256', secret)
+      //   .update(rawBody, 'utf8')
+      //   .digest('hex');
+
+      const expectedHex = crypto.createHmac('sha256', secret).update(rawBuffer).digest('hex');
+      const receivedHex = signatureHeader.startsWith('sha256=') ? signatureHeader.slice(7) : signatureHeader;
+
+    // if (expectedHex.length !== receivedHex.length) return false;
+
+          // return (
+          //     expectedHex.length !== receivedHex.length &&
+          //     // crypto.timingSafeEqual(
+          //     //   Buffer.from(expectedSignature, 'hex'),
+          //     //   Buffer.from(signature, 'hex')
+          //     // )
+          //     crypto.timingSafeEqual(Buffer.from(expectedHex, 'hex'), Buffer.from(receivedHex, 'hex'))
+          // );
+
+          logger.info("expectedHex: ", expectedHex.length);
+          logger.info("receivedHex: ", receivedHex.length);
+
+          
+          if (expectedHex.length !== receivedHex.length) return false;
+
+          logger.info("length are same comparision is failing");
+
+      return crypto.timingSafeEqual(Buffer.from(expectedHex, 'hex'), Buffer.from(receivedHex, 'hex'));
+
     } catch (error) {
       logger.error('Error verifying Razorpay webhook signature:', error);
       return false;
@@ -323,7 +393,7 @@ class WebhookController {
    */
   async recordPayment(paymentEntity, subscription, grantCredits = false) {
     const Payment = require('../models/Payment');
-    const CreditService = require('../services/creditService');
+    const { CreditService } = require('../services/creditService');
 
     try {
       logger.info('Recording payment', {
@@ -335,6 +405,30 @@ class WebhookController {
         status: paymentEntity.status,
         grantCredits
       });
+
+      // Early deduplication check - check if payment already exists and is processed
+      const existingPayment = await Payment.findOne({ 
+        razorpayPaymentId: paymentEntity.id 
+      });
+      
+      if (existingPayment) {
+        if (existingPayment.processed) {
+          logger.info('Payment deduplication: already processed, skipping all operations', {
+            paymentId: existingPayment.razorpayPaymentId,
+            userId: subscription.userId,
+            subscriptionId: subscription._id,
+            creditsGranted: existingPayment.creditsGranted,
+            originalProcessedAt: existingPayment.processedAt,
+            deduplicationDetected: true
+          });
+          return existingPayment;
+        }
+        
+        logger.info('Payment exists but not processed, continuing with credit grant', {
+          paymentId: existingPayment.razorpayPaymentId,
+          userId: subscription.userId
+        });
+      }
 
       // Prepare payment data
       const paymentData = {
@@ -359,12 +453,39 @@ class WebhookController {
         processed: false
       };
 
-      // Create or get payment (idempotent)
-      const payment = await Payment.createOrGet(paymentData);
+      // Create or get payment (idempotent) with error handling
+      let payment;
+      try {
+        const result = await Payment.createOrGet(paymentData);
+        payment = result.payment;
+        
+        if (!result.created) {
+          logger.info('Payment already exists (race condition detected)', {
+            paymentId: payment.razorpayPaymentId,
+            existingProcessed: payment.processed
+          });
+        }
+      } catch (error) {
+        // Handle duplicate key error gracefully
+        if (error.code === 11000) {
+          logger.info('Duplicate payment detected during creation, fetching existing', {
+            paymentId: paymentEntity.id
+          });
+          payment = await Payment.findOne({ 
+            razorpayPaymentId: paymentEntity.id 
+          });
+          
+          if (!payment) {
+            throw new Error('Payment not found after duplicate key error');
+          }
+        } else {
+          throw error;
+        }
+      }
 
-      // Check if payment was already processed
+      // Check if payment was already processed (double-check after creation)
       if (payment.processed) {
-        logger.info('Payment deduplication: already processed, skipping credit operations', {
+        logger.info('Payment deduplication: already processed after fetch, skipping credit operations', {
           paymentId: payment.razorpayPaymentId,
           userId: subscription.userId,
           subscriptionId: subscription._id,
@@ -408,7 +529,8 @@ class WebhookController {
    * @returns {Promise<void>}
    */
   async grantCreditsForSubscription(subscription, payment) {
-    const CreditService = require('../services/creditService');
+   const { CreditService } = require('../services/creditService'); // ✅ Destructure
+
     const Plan = require('../models/Plan');
 
     try {
@@ -467,8 +589,8 @@ class WebhookController {
         creditAmount,
         expiryDate,
         subscription._id.toString(),
+        payment.razorpayPaymentId,
         {
-          paymentId: payment.razorpayPaymentId,
           planId: subscription.planId,
           source: 'subscription_payment'
         }
@@ -506,178 +628,441 @@ class WebhookController {
    * @param {Object} req - Express request object
    * @param {Object} res - Express response object
    */
-  async handleRazorpayWebhook(req, res) {
-    const startTime = Date.now();
-    const WebhookEvent = require('../models/WebhookEvent');
-    const Subscription = require('../models/Subscription');
+  // async handleRazorpayWebhook(req, res) {
+  //   const startTime = Date.now();
+  //   const WebhookEvent = require('../models/WebhookEvent');
+  //   const Subscription = require('../models/Subscription');
 
-    try {
-      // Verify webhook signature
-      const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-      if (webhookSecret && !this.verifyRazorpaySignature(req, webhookSecret)) {
-        logger.warn('Invalid Razorpay webhook signature', {
-          headers: req.headers,
-          ip: req.ip
-        });
-        return res.status(401).json({ error: 'Invalid signature' });
-      }
+  //   try {
+  //     // Verify webhook signature
+  //     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  //     if (webhookSecret && !this.verifyRazorpaySignature(req, webhookSecret)) {
+  //       logger.warn('Invalid Razorpay webhook signature', {
+  //         headers: req.headers,
+  //         ip: req.ip
+  //       });
+  //       return res.status(401).json({ error: 'Invalid signature' });
+  //     }
 
-      const { event, payload, created_at } = req.body;
-      const subscriptionEntity = payload?.subscription?.entity;
-      const paymentEntity = payload?.payment?.entity;
+  //     // logger.info("parsing raw body manually");
+  //     // ✅ Parse the raw buffer manually now that signature is verified
+  //     // req.body = JSON.parse(req.body.toString('utf8'));
+  //     logger.info('parsing raw body safely');
+  //     req.body = this.parseRawBodyIfNeeded(req);   // uses helper above
 
-      const razorpaySubscriptionId = subscriptionEntity?.id;
-      const razorpayPaymentId = paymentEntity?.id;
+  //     const { event, payload, created_at } = req.body;
+  //     const subscriptionEntity = payload?.subscription?.entity;
+  //     const paymentEntity = payload?.payment?.entity;
 
-      logger.info('Received Razorpay webhook', {
-        event,
-        razorpaySubscriptionId,
-        razorpayPaymentId,
-        timestamp: new Date().toISOString()
+  //     const razorpaySubscriptionId = subscriptionEntity?.id;
+  //     const razorpayPaymentId = paymentEntity?.id;
+
+  //     logger.info('Received Razorpay webhook', {
+  //       event,
+  //       razorpaySubscriptionId,
+  //       razorpayPaymentId,
+  //       timestamp: new Date().toISOString()
+  //     });
+
+  //     // Generate unique key for deduplication
+  //     const uniqueKey = WebhookEvent.generateUniqueKey(
+  //       event,
+  //       razorpaySubscriptionId,
+  //       razorpayPaymentId,
+  //       created_at
+  //     );
+
+  //     // Check if webhook was already processed
+  //     const existingWebhook = await WebhookEvent.isProcessed(uniqueKey);
+  //     if (existingWebhook) {
+  //       const processingTime = Date.now() - startTime;
+  //       logger.info('Duplicate webhook detected, skipping processing', {
+  //         uniqueKey,
+  //         event,
+  //         originalProcessedAt: existingWebhook.processedAt,
+  //         processingTime: `${processingTime}ms`
+  //       });
+  //       return res.status(200).json({
+  //         success: true,
+  //         message: 'Webhook already processed',
+  //         processingTime: `${processingTime}ms`
+  //       });
+  //     }
+
+  //     // Record webhook event
+  //     const requestMeta = {
+  //       ip: req.ip,
+  //       userAgent: req.headers['user-agent'],
+  //       headers: {
+  //         'x-razorpay-signature': req.headers['x-razorpay-signature'],
+  //         'content-type': req.headers['content-type']
+  //       }
+  //     };
+
+  //     const webhookEvent = await WebhookEvent.recordWebhook(
+  //       {
+  //         uniqueKey,
+  //         event,
+  //         razorpaySubscriptionId,
+  //         razorpayPaymentId,
+  //         rawBody: req.body
+  //       },
+  //       requestMeta
+  //     );
+
+  //     // Find subscription if available
+  //     let subscription = null;
+  //     if (razorpaySubscriptionId) {
+  //       subscription = await Subscription.findOne({ razorpaySubscriptionId });
+  //     }
+
+  //     // Route to appropriate handler based on event type
+  //     let result;
+  //     try {
+  //       switch (event) {
+  //         case 'subscription.authenticated':
+  //           result = await this.handleAuthenticated(payload, webhookEvent, subscription);
+  //           break;
+
+  //         case 'subscription.activated':
+  //           result = await this.handleActivated(payload, webhookEvent, subscription);
+  //           break;
+
+  //         case 'subscription.charged':
+  //           result = await this.handleCharged(payload, webhookEvent, subscription);
+  //           break;
+
+  //         case 'subscription.pending':
+  //           result = await this.handlePending(payload, webhookEvent, subscription);
+  //           break;
+
+  //         case 'subscription.halted':
+  //           result = await this.handleHalted(payload, webhookEvent, subscription);
+  //           break;
+
+  //         case 'subscription.completed':
+  //           result = await this.handleCompleted(payload, webhookEvent, subscription);
+  //           break;
+
+  //         case 'subscription.cancelled':
+  //           result = await this.handleCancelled(payload, webhookEvent, subscription);
+  //           break;
+
+  //         case 'payment.failed':
+  //           result = await this.handlePaymentFailed(payload, webhookEvent, subscription);
+  //           break;
+
+  //         default:
+  //           logger.warn('Unhandled Razorpay webhook event', { event });
+  //           result = { success: true, message: 'Event received but not processed' };
+  //       }
+
+  //       // Mark webhook as processed
+  //       if (subscription) {
+  //         await WebhookEvent.markProcessed(uniqueKey, subscription._id, subscription.userId);
+  //       } else {
+  //         await WebhookEvent.markProcessed(uniqueKey, null, null);
+  //       }
+
+  //       const processingTime = Date.now() - startTime;
+  //       logger.info('Webhook processed successfully', {
+  //         event,
+  //         uniqueKey,
+  //         processingTime: `${processingTime}ms`
+  //       });
+
+  //       res.status(200).json({
+  //         success: true,
+  //         message: result.message || 'Webhook processed successfully',
+  //         processingTime: `${processingTime}ms`
+  //       });
+
+  //     } catch (handlerError) {
+  //       // Mark webhook as failed
+  //       await WebhookEvent.markFailed(uniqueKey, {
+  //         message: handlerError.message,
+  //         stack: handlerError.stack,
+  //         code: handlerError.code
+  //       });
+
+  //       throw handlerError;
+  //     }
+
+  //   } catch (error) {
+  //     const processingTime = Date.now() - startTime;
+
+  //     logger.error('Error processing Razorpay webhook', {
+  //       event: req.body?.event,
+  //       error: error.message,
+  //       stack: error.stack,
+  //       processingTime: `${processingTime}ms`
+  //     });
+
+  //     res.status(500).json({
+  //       success: false,
+  //       error: 'Internal server error',
+  //       message: error.message,
+  //       processingTime: `${processingTime}ms`
+  //     });
+  //   }
+  // }
+
+  // ============================================
+// 2. FIXED handleRazorpayWebhook (webhookController.js)
+// ============================================
+async handleRazorpayWebhook(req, res) {
+  const startTime = Date.now();
+  const WebhookEvent = require('../models/WebhookEvent');
+  const Subscription = require('../models/Subscription');
+
+  logger.info('🚀 [WEBHOOK-HANDLER] Starting handler', {
+    url: req.url,
+    method: req.method,
+    signatureVerified: req.signatureVerified,
+    hasRawBodyBuffer: !!req.rawBodyBuffer,
+    timestamp: new Date().toISOString()
+  });
+
+  try {
+    // ⚠️ REMOVE DUPLICATE VERIFICATION - Already verified in middleware
+    // Just check if middleware verification passed
+    if (!req.signatureVerified) {
+      logger.error('❌ [WEBHOOK-HANDLER] Signature not verified by middleware', {
+        url: req.url,
+        ip: req.ip
       });
+      return res.status(401).json({ 
+        error: 'Signature verification required',
+        code: 'NOT_VERIFIED'
+      });
+    }
 
-      // Generate unique key for deduplication
-      const uniqueKey = WebhookEvent.generateUniqueKey(
-        event,
-        razorpaySubscriptionId,
-        razorpayPaymentId,
-        created_at
-      );
+    logger.info('✅ [WEBHOOK-HANDLER] Signature pre-verified by middleware');
 
-      // Check if webhook was already processed
-      const existingWebhook = await WebhookEvent.isProcessed(uniqueKey);
-      if (existingWebhook) {
-        const processingTime = Date.now() - startTime;
-        logger.info('Duplicate webhook detected, skipping processing', {
-          uniqueKey,
-          event,
-          originalProcessedAt: existingWebhook.processedAt,
-          processingTime: `${processingTime}ms`
-        });
-        return res.status(200).json({
-          success: true,
-          message: 'Webhook already processed',
-          processingTime: `${processingTime}ms`
-        });
-      }
-
-      // Record webhook event
-      const requestMeta = {
-        ip: req.ip,
-        userAgent: req.headers['user-agent'],
-        headers: {
-          'x-razorpay-signature': req.headers['x-razorpay-signature'],
-          'content-type': req.headers['content-type']
-        }
-      };
-
-      const webhookEvent = await WebhookEvent.recordWebhook(
-        {
-          uniqueKey,
-          event,
-          razorpaySubscriptionId,
-          razorpayPaymentId,
-          rawBody: req.body
-        },
-        requestMeta
-      );
-
-      // Find subscription if available
-      let subscription = null;
-      if (razorpaySubscriptionId) {
-        subscription = await Subscription.findOne({ razorpaySubscriptionId });
-      }
-
-      // Route to appropriate handler based on event type
-      let result;
+    // Parse body if it's still a Buffer
+    if (Buffer.isBuffer(req.body)) {
+      logger.info('📦 [WEBHOOK-HANDLER] Parsing Buffer body', {
+        bufferLength: req.body.length
+      });
       try {
-        switch (event) {
-          case 'subscription.authenticated':
-            result = await this.handleAuthenticated(payload, webhookEvent, subscription);
-            break;
-
-          case 'subscription.activated':
-            result = await this.handleActivated(payload, webhookEvent, subscription);
-            break;
-
-          case 'subscription.charged':
-            result = await this.handleCharged(payload, webhookEvent, subscription);
-            break;
-
-          case 'subscription.pending':
-            result = await this.handlePending(payload, webhookEvent, subscription);
-            break;
-
-          case 'subscription.halted':
-            result = await this.handleHalted(payload, webhookEvent, subscription);
-            break;
-
-          case 'subscription.completed':
-            result = await this.handleCompleted(payload, webhookEvent, subscription);
-            break;
-
-          case 'subscription.cancelled':
-            result = await this.handleCancelled(payload, webhookEvent, subscription);
-            break;
-
-          case 'payment.failed':
-            result = await this.handlePaymentFailed(payload, webhookEvent, subscription);
-            break;
-
-          default:
-            logger.warn('Unhandled Razorpay webhook event', { event });
-            result = { success: true, message: 'Event received but not processed' };
-        }
-
-        // Mark webhook as processed
-        if (subscription) {
-          await WebhookEvent.markProcessed(uniqueKey, subscription._id, subscription.userId);
-        } else {
-          await WebhookEvent.markProcessed(uniqueKey, null, null);
-        }
-
-        const processingTime = Date.now() - startTime;
-        logger.info('Webhook processed successfully', {
-          event,
-          uniqueKey,
-          processingTime: `${processingTime}ms`
+        req.body = JSON.parse(req.body.toString('utf8'));
+        logger.info('✅ [WEBHOOK-HANDLER] Body parsed successfully', {
+          event: req.body.event,
+          hasPayload: !!req.body.payload
         });
-
-        res.status(200).json({
-          success: true,
-          message: result.message || 'Webhook processed successfully',
-          processingTime: `${processingTime}ms`
+      } catch (parseError) {
+        logger.error('❌ [WEBHOOK-HANDLER] Failed to parse body', {
+          error: parseError.message,
+          bodyPreview: req.body.toString('utf8').substring(0, 200)
         });
-
-      } catch (handlerError) {
-        // Mark webhook as failed
-        await WebhookEvent.markFailed(uniqueKey, {
-          message: handlerError.message,
-          stack: handlerError.stack,
-          code: handlerError.code
+        return res.status(400).json({
+          error: 'Invalid JSON payload',
+          code: 'INVALID_JSON'
         });
-
-        throw handlerError;
       }
+    }
 
-    } catch (error) {
+    const { event, payload, created_at } = req.body;
+    const subscriptionEntity = payload?.subscription?.entity;
+    const paymentEntity = payload?.payment?.entity;
+
+    const razorpaySubscriptionId = subscriptionEntity?.id;
+    const razorpayPaymentId = paymentEntity?.id;
+
+    logger.info('📋 [WEBHOOK-HANDLER] Webhook details', {
+      event,
+      razorpaySubscriptionId,
+      razorpayPaymentId,
+      createdAt: created_at,
+      hasSubscription: !!subscriptionEntity,
+      hasPayment: !!paymentEntity
+    });
+
+    // Generate unique key for deduplication
+    const uniqueKey = WebhookEvent.generateUniqueKey(
+      event,
+      razorpaySubscriptionId,
+      razorpayPaymentId,
+      created_at
+    );
+
+    logger.info('🔑 [WEBHOOK-HANDLER] Generated unique key', {
+      uniqueKey,
+      event
+    });
+
+    // Check if webhook was already processed
+    const existingWebhook = await WebhookEvent.isProcessed(uniqueKey);
+    if (existingWebhook) {
       const processingTime = Date.now() - startTime;
-
-      logger.error('Error processing Razorpay webhook', {
-        event: req.body?.event,
-        error: error.message,
-        stack: error.stack,
+      logger.info('⏭️ [WEBHOOK-HANDLER] Duplicate webhook, skipping', {
+        uniqueKey,
+        event,
+        originalProcessedAt: existingWebhook.processedAt,
         processingTime: `${processingTime}ms`
       });
-
-      res.status(500).json({
-        success: false,
-        error: 'Internal server error',
-        message: error.message,
+      return res.status(200).json({
+        success: true,
+        message: 'Webhook already processed',
         processingTime: `${processingTime}ms`
       });
     }
+
+    // Record webhook event
+    const requestMeta = {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      headers: {
+        'x-razorpay-signature': req.headers['x-razorpay-signature'],
+        'content-type': req.headers['content-type']
+      }
+    };
+
+    logger.info('💾 [WEBHOOK-HANDLER] Recording webhook event', {
+      uniqueKey,
+      event,
+      hasRequestMeta: !!requestMeta
+    });
+
+    const webhookEvent = await WebhookEvent.recordWebhook(
+      {
+        uniqueKey,
+        event,
+        razorpaySubscriptionId,
+        razorpayPaymentId,
+        rawBody: req.body
+      },
+      requestMeta
+    );
+
+    logger.info('✅ [WEBHOOK-HANDLER] Webhook recorded', {
+      webhookEventId: webhookEvent._id,
+      uniqueKey
+    });
+
+    // Find subscription if available
+    let subscription = null;
+    if (razorpaySubscriptionId) {
+      subscription = await Subscription.findOne({ razorpaySubscriptionId });
+      logger.info('🔍 [WEBHOOK-HANDLER] Subscription lookup', {
+        razorpaySubscriptionId,
+        found: !!subscription,
+        subscriptionId: subscription?._id
+      });
+    }
+
+    // Route to appropriate handler based on event type
+    let result;
+    try {
+      logger.info(`🎬 [WEBHOOK-HANDLER] Routing to ${event} handler`);
+
+      switch (event) {
+        case 'subscription.authenticated':
+          result = await this.handleAuthenticated(payload, webhookEvent, subscription);
+          break;
+
+        case 'subscription.activated':
+          result = await this.handleActivated(payload, webhookEvent, subscription);
+          break;
+
+        case 'subscription.charged':
+          result = await this.handleCharged(payload, webhookEvent, subscription);
+          break;
+
+        case 'subscription.pending':
+          result = await this.handlePending(payload, webhookEvent, subscription);
+          break;
+
+        case 'subscription.halted':
+          result = await this.handleHalted(payload, webhookEvent, subscription);
+          break;
+
+        case 'subscription.completed':
+          result = await this.handleCompleted(payload, webhookEvent, subscription);
+          break;
+
+        case 'subscription.cancelled':
+          result = await this.handleCancelled(payload, webhookEvent, subscription);
+          break;
+
+        // case 'payment.failed':
+          // result = await this.handlePaymentFailed(payload, webhookEvent, subscription);
+          // break;
+
+        default:
+          logger.warn('⚠️ [WEBHOOK-HANDLER] Unhandled event type', { event });
+          result = { success: true, message: 'Event received but not processed' };
+      }
+
+      logger.info('✅ [WEBHOOK-HANDLER] Event handler completed', {
+        event,
+        resultMessage: result.message
+      });
+
+      // Mark webhook as processed
+      if (subscription) {
+        await WebhookEvent.markProcessed(uniqueKey, subscription._id, subscription.userId);
+        logger.info('✅ [WEBHOOK-HANDLER] Marked as processed with subscription', {
+          uniqueKey,
+          subscriptionId: subscription._id
+        });
+      } else {
+        await WebhookEvent.markProcessed(uniqueKey, null, null);
+        logger.info('✅ [WEBHOOK-HANDLER] Marked as processed without subscription', {
+          uniqueKey
+        });
+      }
+
+      const processingTime = Date.now() - startTime;
+      logger.info('🎉 [WEBHOOK-HANDLER] Webhook processing complete', {
+        event,
+        uniqueKey,
+        processingTime: `${processingTime}ms`,
+        success: true
+      });
+
+      res.status(200).json({
+        success: true,
+        message: result.message || 'Webhook processed successfully',
+        processingTime: `${processingTime}ms`
+      });
+
+    } catch (handlerError) {
+      logger.error('❌ [WEBHOOK-HANDLER] Handler error', {
+        event,
+        error: handlerError.message,
+        stack: handlerError.stack,
+        uniqueKey
+      });
+
+      // Mark webhook as failed
+      await WebhookEvent.markFailed(uniqueKey, {
+        message: handlerError.message,
+        stack: handlerError.stack,
+        code: handlerError.code
+      });
+
+      throw handlerError;
+    }
+
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+
+    logger.error('❌ [WEBHOOK-HANDLER] Fatal error', {
+      event: req.body?.event,
+      error: error.message,
+      stack: error.stack,
+      processingTime: `${processingTime}ms`
+    });
+
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: error.message,
+      processingTime: `${processingTime}ms`
+    });
   }
+}
 
   /**
    * Handle subscription.authenticated event
@@ -704,8 +1089,13 @@ class WebhookController {
         throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
       }
 
+      // Ensure status is active
+      if (subscription.status !== 'active') {
+        subscription.status = 'authenticated';
+      }
+
       // Update subscription status to 'authenticated'
-      subscription.status = 'authenticated';
+      // subscription.status = 'authenticated';
       subscription.authAttempts = subscriptionEntity.auth_attempts || 0;
       subscription.startAt = subscriptionEntity.start_at ? new Date(subscriptionEntity.start_at * 1000) : null;
       subscription.chargeAt = subscriptionEntity.charge_at ? new Date(subscriptionEntity.charge_at * 1000) : null;
@@ -750,6 +1140,7 @@ class WebhookController {
    * @returns {Promise<Object>} Result object
    */
   async handleActivated(payload, webhookEvent, subscription) {
+
     const Subscription = require('../models/Subscription');
     const Plan = require('../models/Plan');
 
@@ -765,49 +1156,51 @@ class WebhookController {
 
       // Create subscription if new, or update existing
       if (!subscription) {
-        // Find user by razorpayCustomerId
-        const User = require('../models/User');
-        const user = await User.findOne({ razorpayCustomerId: subscriptionEntity.customer_id });
+        throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
 
-        if (!user) {
-          throw new Error(`User not found for Razorpay customer ID: ${subscriptionEntity.customer_id}`);
-        }
+        // Find user by razorpaySubscriptionId
+        // const User = require('../models/User');
+        // const user = await User.findOne({ razorpaySubscriptionId: subscriptionEntity.id });
+
+        // if (!user) {
+        //   throw new Error(`User not found for Razorpay subscription ID: ${subscriptionEntity.id}`);
+        // }
 
         // Find plan by razorpayPlanId
-        const plan = await Plan.findOne({ razorpayPlanId: subscriptionEntity.plan_id });
+        // const plan = await Plan.findOne({ razorpayPlanId: subscriptionEntity.plan_id });
 
-        if (!plan) {
-          throw new Error(`Plan not found for Razorpay plan ID: ${subscriptionEntity.plan_id}`);
-        }
+        // if (!plan) {
+        //   throw new Error(`Plan not found for Razorpay plan ID: ${subscriptionEntity.plan_id}`);
+        // }
 
         // Create new subscription
-        subscription = await Subscription.create({
-          userId: user._id,
-          planId: plan._id,
-          razorpaySubscriptionId: subscriptionEntity.id,
-          razorpayCustomerId: subscriptionEntity.customer_id,
-          status: 'active',
-          currentPeriodStart: new Date(subscriptionEntity.current_start * 1000),
-          currentPeriodEnd: new Date(subscriptionEntity.current_end * 1000),
-          billing: {
-            amount: plan.pricing.amount,
-            currency: plan.pricing.currency,
-            interval: plan.pricing.interval,
-            intervalCount: plan.pricing.intervalCount || 1
-          },
-          paidCount: subscriptionEntity.paid_count || 0,
-          totalCount: subscriptionEntity.total_count || 0,
-          remainingCount: subscriptionEntity.remaining_count || 0,
-          chargeAt: subscriptionEntity.charge_at ? new Date(subscriptionEntity.charge_at * 1000) : null,
-          startAt: subscriptionEntity.start_at ? new Date(subscriptionEntity.start_at * 1000) : null,
-          endAt: subscriptionEntity.end_at ? new Date(subscriptionEntity.end_at * 1000) : null
-        });
+        // subscription = await Subscription.create({
+        //   userId: user._id,
+        //   planId: plan._id,
+        //   razorpaySubscriptionId: subscriptionEntity.id,
+        //   razorpayCustomerId: subscriptionEntity.customer_id,
+        //   status: 'active',
+        //   currentPeriodStart: new Date(subscriptionEntity.current_start * 1000),
+        //   currentPeriodEnd: new Date(subscriptionEntity.current_end * 1000),
+        //   billing: {
+        //     amount: plan.pricing.amount,
+        //     currency: plan.pricing.currency,
+        //     interval: plan.pricing.interval,
+        //     intervalCount: plan.pricing.intervalCount || 1
+        //   },
+        //   paidCount: subscriptionEntity.paid_count || 0,
+        //   totalCount: subscriptionEntity.total_count || 0,
+        //   remainingCount: subscriptionEntity.remaining_count || 0,
+        //   chargeAt: subscriptionEntity.charge_at ? new Date(subscriptionEntity.charge_at * 1000) : null,
+        //   startAt: subscriptionEntity.start_at ? new Date(subscriptionEntity.start_at * 1000) : null,
+        //   endAt: subscriptionEntity.end_at ? new Date(subscriptionEntity.end_at * 1000) : null
+        // });
 
-        logger.info('New subscription created from activated event', {
-          subscriptionId: subscription._id,
-          userId: subscription.userId,
-          planId: subscription.planId
-        });
+        // logger.info('New subscription created from activated event', {
+        //   subscriptionId: subscription._id,
+        //   userId: subscription.userId,
+        //   planId: subscription.planId
+        // });
       } else {
         // Update existing subscription
         subscription.status = 'active';
@@ -987,7 +1380,7 @@ class WebhookController {
    * @returns {Promise<Object>} Result object
    */
   async handleHalted(payload, webhookEvent, subscription) {
-    const CreditService = require('../services/creditService');
+    const { CreditService } = require('../services/creditService');
 
     try {
       const subscriptionEntity = payload.subscription.entity;
@@ -1206,7 +1599,7 @@ class WebhookController {
         processedAt: new Date()
       };
 
-      const payment = await Payment.createOrGet(paymentData);
+      const { payment } = await Payment.createOrGet(paymentData);
 
       // Do not change subscription status - pending/halted handles that
       logger.warn('Failed payment recorded', {

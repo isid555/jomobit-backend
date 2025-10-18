@@ -103,13 +103,13 @@ const subscriptionSchema = new mongoose.Schema({
   // Billing cycle information
   currentPeriodStart: {
     type: Date,
-    required: true,
+    // required: true,
     index: true
   },
 
   currentPeriodEnd: {
     type: Date,
-    required: true,
+    // required: true,
     index: true
   },
 

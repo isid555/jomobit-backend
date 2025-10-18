@@ -140,7 +140,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction({
+    const transaction = new CreditTransaction({
       userId,
       type: 'grant',
       amount,
@@ -305,7 +305,7 @@ class CreditService {
       });
 
       // Create expire transaction for old credits
-      const expireTransaction = await CreditTransaction.createTransaction({
+      const expireTransaction = new CreditTransaction({
         userId,
         type: 'expire',
         amount: -wallet.subscriptionCredits,
@@ -366,7 +366,7 @@ class CreditService {
     };
 
     // Create grant transaction record
-    const grantTransaction = await CreditTransaction.createTransaction({
+    const grantTransaction = new CreditTransaction({
       userId,
       type: 'grant',
       amount,
@@ -542,7 +542,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction({
+    const transaction = new CreditTransaction({
       userId,
       type: 'reserve',
       amount,
@@ -725,7 +725,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction({
+    const transaction = new CreditTransaction({
       userId,
       type: 'deduct',
       amount: -amount, // Negative for deduction
@@ -915,7 +915,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction({
+    const transaction = new CreditTransaction({
       userId,
       type: 'release',
       amount,

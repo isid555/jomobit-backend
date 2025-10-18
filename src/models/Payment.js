@@ -9,8 +9,8 @@ const paymentSchema = new mongoose.Schema({
   razorpayPaymentId: {
     type: String,
     required: true,
-    unique: true,
-    index: true
+    unique: true
+    // index: true
   },
 
   // Razorpay invoice ID
@@ -77,12 +77,22 @@ const paymentSchema = new mongoose.Schema({
   errorDescription: String,
 
   // Card details (if applicable)
+  // card: {
+  //   last4: String,
+  //   network: String,
+  //   type: String,
+  //   issuer: String
+  // },
+
   card: {
+  type: new mongoose.Schema({
     last4: String,
     network: String,
     type: String,
     issuer: String
-  },
+  }, { _id: false })
+},
+
 
   // Raw webhook data for debugging
   webhookData: {
@@ -114,7 +124,7 @@ const paymentSchema = new mongoose.Schema({
 });
 
 // Indexes
-paymentSchema.index({ razorpayPaymentId: 1 }, { unique: true });
+// paymentSchema.index({ razorpayPaymentId: 1 }, { unique: true });
 paymentSchema.index({ subscriptionId: 1, createdAt: -1 });
 paymentSchema.index({ userId: 1, status: 1, createdAt: -1 });
 paymentSchema.index({ status: 1, processed: 1 });
