@@ -848,7 +848,7 @@ class CreditService {
       'reference.id': jobId
     });
     const reservationTransaction = session ? await reservationQuery.session(session) : await reservationQuery;
-    logger.info("Now here is the bug: ")
+    logger.info('Verifying credit reservation exists', { jobId, userId });
 
     if (!reservationTransaction) {
       throw new CreditOperationError(
@@ -858,7 +858,7 @@ class CreditService {
       );
     }
 
-    logger.info("THis line wont be executed!");
+    logger.info('Credit reservation verified successfully', { jobId, userId });
 
     // Check if credits were already released or deducted
     const existingReleaseQuery = CreditTransaction.findOne({

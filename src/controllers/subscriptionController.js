@@ -9,7 +9,7 @@ const Plan = require('../models/Plan');
 class SubscriptionController {
   constructor() {
     this.subscriptionService = new SubscriptionService();
-    
+
     // Bind all methods that use 'this' to preserve context
     this.createSubscription = this.createSubscription.bind(this);
     this.getCurrentSubscription = this.getCurrentSubscription.bind(this);
@@ -78,7 +78,7 @@ class SubscriptionController {
       try {
         // Try to find existing customer by email
         const customers = await razorpay.customers.all({ email: user.email });
-        
+
         if (customers.items && customers.items.length > 0) {
           razorpayCustomerId = customers.items[0].id;
           logger.info('Found existing Razorpay customer', {
@@ -300,7 +300,7 @@ class SubscriptionController {
       const actualUserId = userResult.user._id;
 
       const Subscription = require('../models/Subscription');
-      
+
       // Find subscription by ID
       const subscription = await Subscription.findById(id).populate('planId').exec();
 
@@ -438,7 +438,7 @@ class SubscriptionController {
   async upgradeSubscription(req, res) {
     try {
       const userId = req.user.id;
-      const { newPlanId, reason = 'user_upgrade' } = req.body;
+      const { newPlanId, immediate = false, reason = 'user_upgrade' } = req.body;
 
       if (!newPlanId) {
         return res.status(400).json({
@@ -498,6 +498,138 @@ class SubscriptionController {
       // Determine changeType (upgrade if new amount > current, else downgrade)
       const changeType = newPlan.pricing.amount > currentPlan.pricing.amount ? 'upgrade' : 'downgrade';
 
+      // Handle immediate upgrade/downgrade
+      if (immediate === true) {
+        logger.info('Processing immediate plan change', {
+          userId: actualUserId,
+          subscriptionId: subscription._id,
+          razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+          fromPlan: currentPlan.planId,
+          toPlan: newPlan.planId,
+          changeType: changeType
+        });
+
+        try {
+          // Update subscription in Razorpay with immediate effect
+          const razorpayResponse = await razorpay.subscriptions.update(
+            subscription.razorpaySubscriptionId,
+            {
+              plan_id: newPlan.razorpayPlanId,
+              schedule_change_at: 'now',
+              quantity: 1
+            }
+          );
+
+          logger.info('Razorpay subscription updated successfully', {
+            razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+            newPlanId: newPlan.razorpayPlanId,
+            razorpayStatus: razorpayResponse.status,
+            paidCount: razorpayResponse.paid_count,
+            remainingCount: razorpayResponse.remaining_count
+          });
+
+          // Update local subscription immediately
+          subscription.planId = newPlan._id;
+          subscription.billing = {
+            amount: newPlan.pricing.amount,
+            currency: newPlan.pricing.currency,
+            interval: newPlan.pricing.interval,
+            intervalCount: newPlan.pricing.intervalCount || 1
+          };
+
+          // Update Razorpay sync fields
+          if (razorpayResponse.paid_count !== undefined) {
+            subscription.paidCount = razorpayResponse.paid_count;
+          }
+          if (razorpayResponse.remaining_count !== undefined) {
+            subscription.remainingCount = razorpayResponse.remaining_count;
+          }
+          if (razorpayResponse.charge_at) {
+            subscription.chargeAt = new Date(razorpayResponse.charge_at * 1000);
+          }
+
+          // Record the plan change in history
+          subscription.planChanges.push({
+            fromPlanId: currentPlan._id,
+            toPlanId: newPlan._id,
+            changeType: changeType,
+            effectiveDate: new Date(),
+            reason: reason,
+            immediate: true
+          });
+
+          // Clear any scheduled changes
+          subscription.scheduledChange = undefined;
+
+          await subscription.save();
+
+          logger.info('Immediate plan change completed successfully', {
+            userId: actualUserId,
+            subscriptionId: subscription._id,
+            fromPlan: currentPlan.planId,
+            toPlan: newPlan.planId,
+            changeType: changeType,
+            note: 'Credits will be updated via subscription.charged webhook'
+          });
+
+          // Return success response
+          return res.json({
+            success: true,
+            message: `Plan ${changeType} applied immediately. ${changeType === 'upgrade' ? 'Prorated charge will be processed.' : 'Credit will be applied to next billing cycle.'}`,
+            immediate: true,
+            subscription: {
+              _id: subscription._id,
+              status: subscription.status,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+              paidCount: subscription.paidCount,
+              remainingCount: subscription.remainingCount
+            },
+            oldPlan: {
+              _id: currentPlan._id,
+              name: currentPlan.name,
+              planId: currentPlan.planId,
+              pricing: currentPlan.pricing,
+              features: currentPlan.features
+            },
+            newPlan: {
+              _id: newPlan._id,
+              name: newPlan.name,
+              planId: newPlan.planId,
+              pricing: newPlan.pricing,
+              features: newPlan.features
+            },
+            changeType: changeType,
+            effectiveDate: new Date()
+          });
+
+        } catch (razorpayError) {
+          logger.error('Error updating Razorpay subscription', {
+            razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+            newPlanId: newPlan.razorpayPlanId,
+            error: razorpayError.message,
+            errorCode: razorpayError.statusCode,
+            errorDescription: razorpayError.error?.description
+          });
+
+          return res.status(500).json({
+            success: false,
+            error: 'RAZORPAY_UPDATE_FAILED',
+            message: 'Failed to update subscription in Razorpay',
+            details: razorpayError.error?.description || razorpayError.message
+          });
+        }
+      }
+
+      // Handle scheduled upgrade/downgrade (existing behavior)
+      logger.info('Scheduling plan change for end of billing cycle', {
+        userId: actualUserId,
+        subscriptionId: subscription._id,
+        fromPlan: currentPlan.planId,
+        toPlan: newPlan.planId,
+        changeType: changeType,
+        effectiveDate: subscription.currentPeriodEnd
+      });
+
       // Create scheduledChange object with newPlanId, changeType, effectiveDate=currentPeriodEnd, requestedAt, reason
       subscription.scheduledChange = {
         newPlanId: newPlan._id,
@@ -522,6 +654,7 @@ class SubscriptionController {
       res.json({
         success: true,
         message: `Plan ${changeType} scheduled for ${subscription.currentPeriodEnd.toISOString()}`,
+        immediate: false,
         subscription: {
           _id: subscription._id,
           status: subscription.status,
@@ -596,7 +729,7 @@ class SubscriptionController {
         try {
           // Cancel on Razorpay
           await razorpay.subscriptions.cancel(subscription.razorpaySubscriptionId);
-          
+
           subscription.status = 'cancelled';
           subscription.cancelledAt = new Date();
           if (reason) {
@@ -682,11 +815,11 @@ class SubscriptionController {
   async getBillingHistory(req, res) {
     try {
       const userId = req.user.id;
-      const { 
-        limit = 10, 
-        skip = 0, 
-        startDate, 
-        endDate 
+      const {
+        limit = 10,
+        skip = 0,
+        startDate,
+        endDate
       } = req.query;
 
       // Get user by Auth0 ID first
@@ -814,7 +947,7 @@ class SubscriptionController {
    * POST /api/subscriptions/plans
    */
   async createPlans(req, res) {
-    try{
+    try {
       const Plan = require('../models/Plan');
       const plans = await Plan.createDefaultPlans();
 
@@ -823,7 +956,7 @@ class SubscriptionController {
         plans: plans.map(plan => plan.toObject())
       });
     }
-    catch(error){
+    catch (error) {
       logger.error('Error creating default plans:', error);
       res.status(500).json({
         success: false,
@@ -944,7 +1077,7 @@ class SubscriptionController {
           code: error.code,
           details: error.details
         });
-        
+
         return res.status(400).json({
           success: false,
           error: error.code,
