@@ -16,34 +16,34 @@ class WebhookController {
 
   // At top of controller
   parseRawBodyIfNeeded(req) {
-  // If req.body is Buffer (raw), parse
-  if (Buffer.isBuffer(req.body)) {
-    try {
-      const str = req.body.toString('utf8');
-      return JSON.parse(str);
-    } catch (err) {
-      logger.error('Failed to parse raw buffer body', { error: err.message, stack: err.stack });
-      throw new Error('Invalid JSON payload');
+    // If req.body is Buffer (raw), parse
+    if (Buffer.isBuffer(req.body)) {
+      try {
+        const str = req.body.toString('utf8');
+        return JSON.parse(str);
+      } catch (err) {
+        logger.error('Failed to parse raw buffer body', { error: err.message, stack: err.stack });
+        throw new Error('Invalid JSON payload');
+      }
     }
-  }
 
-  // If req.rawBody exists and is string, try parse
-  if (typeof req.rawBody === 'string') {
-    try {
-      return JSON.parse(req.rawBody);
-    } catch (err) {
-      logger.error('Failed to parse req.rawBody string', { error: err.message, stack: err.stack });
-      throw new Error('Invalid JSON payload');
+    // If req.rawBody exists and is string, try parse
+    if (typeof req.rawBody === 'string') {
+      try {
+        return JSON.parse(req.rawBody);
+      } catch (err) {
+        logger.error('Failed to parse req.rawBody string', { error: err.message, stack: err.stack });
+        throw new Error('Invalid JSON payload');
+      }
     }
-  }
 
-  // If req.body is already object, return it
-  if (req.body && typeof req.body === 'object') {
-    return req.body;
-  }
+    // If req.body is already object, return it
+    if (req.body && typeof req.body === 'object') {
+      return req.body;
+    }
 
-  // otherwise invalid payload
-  throw new Error('Invalid or missing payload');
+    // otherwise invalid payload
+    throw new Error('Invalid or missing payload');
   }
 
   /**
@@ -333,7 +333,7 @@ class WebhookController {
 
     // ✅ Use the raw body, not JSON.stringify(req.body)
     // const rawBody = req.rawBody || JSON.stringify(req.body);
-     // Prefer raw buffer:
+    // Prefer raw buffer:
     let rawBuffer;
     if (Buffer.isBuffer(req.body)) {
       rawBuffer = req.body;
@@ -357,24 +357,24 @@ class WebhookController {
       const expectedHex = crypto.createHmac('sha256', secret).update(rawBuffer).digest('hex');
       const receivedHex = signatureHeader.startsWith('sha256=') ? signatureHeader.slice(7) : signatureHeader;
 
-    // if (expectedHex.length !== receivedHex.length) return false;
+      // if (expectedHex.length !== receivedHex.length) return false;
 
-          // return (
-          //     expectedHex.length !== receivedHex.length &&
-          //     // crypto.timingSafeEqual(
-          //     //   Buffer.from(expectedSignature, 'hex'),
-          //     //   Buffer.from(signature, 'hex')
-          //     // )
-          //     crypto.timingSafeEqual(Buffer.from(expectedHex, 'hex'), Buffer.from(receivedHex, 'hex'))
-          // );
+      // return (
+      //     expectedHex.length !== receivedHex.length &&
+      //     // crypto.timingSafeEqual(
+      //     //   Buffer.from(expectedSignature, 'hex'),
+      //     //   Buffer.from(signature, 'hex')
+      //     // )
+      //     crypto.timingSafeEqual(Buffer.from(expectedHex, 'hex'), Buffer.from(receivedHex, 'hex'))
+      // );
 
-          logger.info("expectedHex: ", expectedHex.length);
-          logger.info("receivedHex: ", receivedHex.length);
+      logger.info("expectedHex: ", expectedHex.length);
+      logger.info("receivedHex: ", receivedHex.length);
 
-          
-          if (expectedHex.length !== receivedHex.length) return false;
 
-          logger.info("length are same comparision is failing");
+      if (expectedHex.length !== receivedHex.length) return false;
+
+      logger.info("length are same comparision is failing");
 
       return crypto.timingSafeEqual(Buffer.from(expectedHex, 'hex'), Buffer.from(receivedHex, 'hex'));
 
@@ -407,10 +407,10 @@ class WebhookController {
       });
 
       // Early deduplication check - check if payment already exists and is processed
-      const existingPayment = await Payment.findOne({ 
-        razorpayPaymentId: paymentEntity.id 
+      const existingPayment = await Payment.findOne({
+        razorpayPaymentId: paymentEntity.id
       });
-      
+
       if (existingPayment) {
         if (existingPayment.processed) {
           logger.info('Payment deduplication: already processed, skipping all operations', {
@@ -423,7 +423,7 @@ class WebhookController {
           });
           return existingPayment;
         }
-        
+
         logger.info('Payment exists but not processed, continuing with credit grant', {
           paymentId: existingPayment.razorpayPaymentId,
           userId: subscription.userId
@@ -458,7 +458,7 @@ class WebhookController {
       try {
         const result = await Payment.createOrGet(paymentData);
         payment = result.payment;
-        
+
         if (!result.created) {
           logger.info('Payment already exists (race condition detected)', {
             paymentId: payment.razorpayPaymentId,
@@ -471,10 +471,10 @@ class WebhookController {
           logger.info('Duplicate payment detected during creation, fetching existing', {
             paymentId: paymentEntity.id
           });
-          payment = await Payment.findOne({ 
-            razorpayPaymentId: paymentEntity.id 
+          payment = await Payment.findOne({
+            razorpayPaymentId: paymentEntity.id
           });
-          
+
           if (!payment) {
             throw new Error('Payment not found after duplicate key error');
           }
@@ -529,7 +529,7 @@ class WebhookController {
    * @returns {Promise<void>}
    */
   async grantCreditsForSubscription(subscription, payment) {
-   const { CreditService } = require('../services/creditService'); // ✅ Destructure
+    const { CreditService } = require('../services/creditService'); // ✅ Destructure
 
     const Plan = require('../models/Plan');
 
@@ -616,6 +616,102 @@ class WebhookController {
         subscriptionId: subscription._id,
         userId: subscription.userId,
         paymentId: payment.razorpayPaymentId,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Grant subscription credits WITHOUT payment (for immediate upgrades via subscription.updated)
+   * Used when subscription.updated webhook arrives without payment entity
+   * 
+   * @param {Object} subscription - Subscription document (must be populated with planId)
+   * @param {Object} metadata - Additional metadata
+   * @returns {Promise<Object>} Result object
+   */
+  async grantSubscriptionCreditsWithoutPayment(subscription, metadata = {}) {
+    const Plan = require('../models/Plan');
+    const { CreditService } = require('../services/creditService');
+
+    try {
+      const creditService = new CreditService();
+
+      // Get plan details
+      const plan = await Plan.findById(subscription.planId);
+      if (!plan) {
+        throw new Error(`Plan not found: ${subscription.planId}`);
+      }
+
+      const creditAmount = plan.features?.credits?.monthly || plan.features?.credits?.amount || 0;
+
+      if (creditAmount <= 0) {
+        logger.warn('Plan has no credits to grant', {
+          planId: plan._id,
+          planName: plan.name,
+          subscriptionId: subscription._id,
+          userId: subscription.userId
+        });
+        return {
+          success: true,
+          creditsGranted: 0,
+          oldCreditsExpired: 0,
+          message: 'No credits to grant for this plan'
+        };
+      }
+
+      // Use existing grantSubscriptionCredits with paymentId = null
+      // The core function handles null paymentId gracefully:
+      // - Skips payment deduplication check
+      // - Skips payment record update
+      // - Still expires old credits and grants new credits atomically
+      const expiryDate = subscription.currentPeriodEnd;
+
+      logger.info('Granting subscription credits without payment', {
+        userId: subscription.userId,
+        amount: creditAmount,
+        expiryDate,
+        subscriptionId: subscription._id,
+        planId: subscription.planId,
+        planName: plan.name,
+        source: metadata.source || 'subscription_updated_immediate',
+        changeType: metadata.changeType
+      });
+
+      const result = await creditService.grantSubscriptionCredits(
+        subscription.userId,
+        creditAmount,
+        expiryDate,
+        subscription._id.toString(),
+        null, // paymentId = null (no payment for subscription.updated)
+        {
+          planId: subscription.planId,
+          ...metadata
+        }
+      );
+
+      logger.info('Credits granted successfully without payment', {
+        userId: subscription.userId,
+        amount: creditAmount,
+        expiryDate,
+        subscriptionId: subscription._id,
+        planName: plan.name,
+        oldCreditsExpired: result.oldCreditsExpired || 0,
+        changeType: metadata.changeType
+      });
+
+      return {
+        success: true,
+        creditsGranted: creditAmount,
+        oldCreditsExpired: result.oldCreditsExpired || 0,
+        message: `${creditAmount} subscription credits granted successfully`
+      };
+
+    } catch (error) {
+      logger.error('Error granting credits without payment', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
         error: error.message,
         stack: error.stack
       });
@@ -808,261 +904,265 @@ class WebhookController {
   // }
 
   // ============================================
-// 2. FIXED handleRazorpayWebhook (webhookController.js)
-// ============================================
-async handleRazorpayWebhook(req, res) {
-  const startTime = Date.now();
-  const WebhookEvent = require('../models/WebhookEvent');
-  const Subscription = require('../models/Subscription');
+  // 2. FIXED handleRazorpayWebhook (webhookController.js)
+  // ============================================
+  async handleRazorpayWebhook(req, res) {
+    const startTime = Date.now();
+    const WebhookEvent = require('../models/WebhookEvent');
+    const Subscription = require('../models/Subscription');
 
-  logger.info('🚀 [WEBHOOK-HANDLER] Starting handler', {
-    url: req.url,
-    method: req.method,
-    signatureVerified: req.signatureVerified,
-    hasRawBodyBuffer: !!req.rawBodyBuffer,
-    timestamp: new Date().toISOString()
-  });
+    logger.info('🚀 [WEBHOOK-HANDLER] Starting handler', {
+      url: req.url,
+      method: req.method,
+      signatureVerified: req.signatureVerified,
+      hasRawBodyBuffer: !!req.rawBodyBuffer,
+      timestamp: new Date().toISOString()
+    });
 
-  try {
-    // ⚠️ REMOVE DUPLICATE VERIFICATION - Already verified in middleware
-    // Just check if middleware verification passed
-    if (!req.signatureVerified) {
-      logger.error('❌ [WEBHOOK-HANDLER] Signature not verified by middleware', {
-        url: req.url,
-        ip: req.ip
-      });
-      return res.status(401).json({ 
-        error: 'Signature verification required',
-        code: 'NOT_VERIFIED'
-      });
-    }
-
-    logger.info('✅ [WEBHOOK-HANDLER] Signature pre-verified by middleware');
-
-    // Parse body if it's still a Buffer
-    if (Buffer.isBuffer(req.body)) {
-      logger.info('📦 [WEBHOOK-HANDLER] Parsing Buffer body', {
-        bufferLength: req.body.length
-      });
-      try {
-        req.body = JSON.parse(req.body.toString('utf8'));
-        logger.info('✅ [WEBHOOK-HANDLER] Body parsed successfully', {
-          event: req.body.event,
-          hasPayload: !!req.body.payload
+    try {
+      // ⚠️ REMOVE DUPLICATE VERIFICATION - Already verified in middleware
+      // Just check if middleware verification passed
+      if (!req.signatureVerified) {
+        logger.error('❌ [WEBHOOK-HANDLER] Signature not verified by middleware', {
+          url: req.url,
+          ip: req.ip
         });
-      } catch (parseError) {
-        logger.error('❌ [WEBHOOK-HANDLER] Failed to parse body', {
-          error: parseError.message,
-          bodyPreview: req.body.toString('utf8').substring(0, 200)
-        });
-        return res.status(400).json({
-          error: 'Invalid JSON payload',
-          code: 'INVALID_JSON'
+        return res.status(401).json({
+          error: 'Signature verification required',
+          code: 'NOT_VERIFIED'
         });
       }
-    }
 
-    const { event, payload, created_at } = req.body;
-    const subscriptionEntity = payload?.subscription?.entity;
-    const paymentEntity = payload?.payment?.entity;
+      logger.info('✅ [WEBHOOK-HANDLER] Signature pre-verified by middleware');
 
-    const razorpaySubscriptionId = subscriptionEntity?.id;
-    const razorpayPaymentId = paymentEntity?.id;
-
-    logger.info('📋 [WEBHOOK-HANDLER] Webhook details', {
-      event,
-      razorpaySubscriptionId,
-      razorpayPaymentId,
-      createdAt: created_at,
-      hasSubscription: !!subscriptionEntity,
-      hasPayment: !!paymentEntity
-    });
-
-    // Generate unique key for deduplication
-    const uniqueKey = WebhookEvent.generateUniqueKey(
-      event,
-      razorpaySubscriptionId,
-      razorpayPaymentId,
-      created_at
-    );
-
-    logger.info('🔑 [WEBHOOK-HANDLER] Generated unique key', {
-      uniqueKey,
-      event
-    });
-
-    // Check if webhook was already processed
-    const existingWebhook = await WebhookEvent.isProcessed(uniqueKey);
-    if (existingWebhook) {
-      const processingTime = Date.now() - startTime;
-      logger.info('⏭️ [WEBHOOK-HANDLER] Duplicate webhook, skipping', {
-        uniqueKey,
-        event,
-        originalProcessedAt: existingWebhook.processedAt,
-        processingTime: `${processingTime}ms`
-      });
-      return res.status(200).json({
-        success: true,
-        message: 'Webhook already processed',
-        processingTime: `${processingTime}ms`
-      });
-    }
-
-    // Record webhook event
-    const requestMeta = {
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-      headers: {
-        'x-razorpay-signature': req.headers['x-razorpay-signature'],
-        'content-type': req.headers['content-type']
+      // Parse body if it's still a Buffer
+      if (Buffer.isBuffer(req.body)) {
+        logger.info('📦 [WEBHOOK-HANDLER] Parsing Buffer body', {
+          bufferLength: req.body.length
+        });
+        try {
+          req.body = JSON.parse(req.body.toString('utf8'));
+          logger.info('✅ [WEBHOOK-HANDLER] Body parsed successfully', {
+            event: req.body.event,
+            hasPayload: !!req.body.payload
+          });
+        } catch (parseError) {
+          logger.error('❌ [WEBHOOK-HANDLER] Failed to parse body', {
+            error: parseError.message,
+            bodyPreview: req.body.toString('utf8').substring(0, 200)
+          });
+          return res.status(400).json({
+            error: 'Invalid JSON payload',
+            code: 'INVALID_JSON'
+          });
+        }
       }
-    };
 
-    logger.info('💾 [WEBHOOK-HANDLER] Recording webhook event', {
-      uniqueKey,
-      event,
-      hasRequestMeta: !!requestMeta
-    });
+      const { event, payload, created_at } = req.body;
+      const subscriptionEntity = payload?.subscription?.entity;
+      const paymentEntity = payload?.payment?.entity;
 
-    const webhookEvent = await WebhookEvent.recordWebhook(
-      {
-        uniqueKey,
+      const razorpaySubscriptionId = subscriptionEntity?.id;
+      const razorpayPaymentId = paymentEntity?.id;
+
+      logger.info('📋 [WEBHOOK-HANDLER] Webhook details', {
         event,
         razorpaySubscriptionId,
         razorpayPaymentId,
-        rawBody: req.body
-      },
-      requestMeta
-    );
+        createdAt: created_at,
+        hasSubscription: !!subscriptionEntity,
+        hasPayment: !!paymentEntity
+      });
 
-    logger.info('✅ [WEBHOOK-HANDLER] Webhook recorded', {
-      webhookEventId: webhookEvent._id,
-      uniqueKey
-    });
-
-    // Find subscription if available
-    let subscription = null;
-    if (razorpaySubscriptionId) {
-      subscription = await Subscription.findOne({ razorpaySubscriptionId });
-      logger.info('🔍 [WEBHOOK-HANDLER] Subscription lookup', {
+      // Generate unique key for deduplication
+      const uniqueKey = WebhookEvent.generateUniqueKey(
+        event,
         razorpaySubscriptionId,
-        found: !!subscription,
-        subscriptionId: subscription?._id
-      });
-    }
+        razorpayPaymentId,
+        created_at
+      );
 
-    // Route to appropriate handler based on event type
-    let result;
-    try {
-      logger.info(`🎬 [WEBHOOK-HANDLER] Routing to ${event} handler`);
-
-      switch (event) {
-        case 'subscription.authenticated':
-          result = await this.handleAuthenticated(payload, webhookEvent, subscription);
-          break;
-
-        case 'subscription.activated':
-          result = await this.handleActivated(payload, webhookEvent, subscription);
-          break;
-
-        case 'subscription.charged':
-          result = await this.handleCharged(payload, webhookEvent, subscription);
-          break;
-
-        case 'subscription.pending':
-          result = await this.handlePending(payload, webhookEvent, subscription);
-          break;
-
-        case 'subscription.halted':
-          result = await this.handleHalted(payload, webhookEvent, subscription);
-          break;
-
-        case 'subscription.completed':
-          result = await this.handleCompleted(payload, webhookEvent, subscription);
-          break;
-
-        case 'subscription.cancelled':
-          result = await this.handleCancelled(payload, webhookEvent, subscription);
-          break;
-
-        // case 'payment.failed':
-          // result = await this.handlePaymentFailed(payload, webhookEvent, subscription);
-          // break;
-
-        default:
-          logger.warn('⚠️ [WEBHOOK-HANDLER] Unhandled event type', { event });
-          result = { success: true, message: 'Event received but not processed' };
-      }
-
-      logger.info('✅ [WEBHOOK-HANDLER] Event handler completed', {
-        event,
-        resultMessage: result.message
-      });
-
-      // Mark webhook as processed
-      if (subscription) {
-        await WebhookEvent.markProcessed(uniqueKey, subscription._id, subscription.userId);
-        logger.info('✅ [WEBHOOK-HANDLER] Marked as processed with subscription', {
-          uniqueKey,
-          subscriptionId: subscription._id
-        });
-      } else {
-        await WebhookEvent.markProcessed(uniqueKey, null, null);
-        logger.info('✅ [WEBHOOK-HANDLER] Marked as processed without subscription', {
-          uniqueKey
-        });
-      }
-
-      const processingTime = Date.now() - startTime;
-      logger.info('🎉 [WEBHOOK-HANDLER] Webhook processing complete', {
-        event,
+      logger.info('🔑 [WEBHOOK-HANDLER] Generated unique key', {
         uniqueKey,
-        processingTime: `${processingTime}ms`,
-        success: true
+        event
       });
 
-      res.status(200).json({
-        success: true,
-        message: result.message || 'Webhook processed successfully',
-        processingTime: `${processingTime}ms`
-      });
+      // Check if webhook was already processed
+      const existingWebhook = await WebhookEvent.isProcessed(uniqueKey);
+      if (existingWebhook) {
+        const processingTime = Date.now() - startTime;
+        logger.info('⏭️ [WEBHOOK-HANDLER] Duplicate webhook, skipping', {
+          uniqueKey,
+          event,
+          originalProcessedAt: existingWebhook.processedAt,
+          processingTime: `${processingTime}ms`
+        });
+        return res.status(200).json({
+          success: true,
+          message: 'Webhook already processed',
+          processingTime: `${processingTime}ms`
+        });
+      }
 
-    } catch (handlerError) {
-      logger.error('❌ [WEBHOOK-HANDLER] Handler error', {
+      // Record webhook event
+      const requestMeta = {
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        headers: {
+          'x-razorpay-signature': req.headers['x-razorpay-signature'],
+          'content-type': req.headers['content-type']
+        }
+      };
+
+      logger.info('💾 [WEBHOOK-HANDLER] Recording webhook event', {
+        uniqueKey,
         event,
-        error: handlerError.message,
-        stack: handlerError.stack,
+        hasRequestMeta: !!requestMeta
+      });
+
+      const webhookEvent = await WebhookEvent.recordWebhook(
+        {
+          uniqueKey,
+          event,
+          razorpaySubscriptionId,
+          razorpayPaymentId,
+          rawBody: req.body
+        },
+        requestMeta
+      );
+
+      logger.info('✅ [WEBHOOK-HANDLER] Webhook recorded', {
+        webhookEventId: webhookEvent._id,
         uniqueKey
       });
 
-      // Mark webhook as failed
-      await WebhookEvent.markFailed(uniqueKey, {
-        message: handlerError.message,
-        stack: handlerError.stack,
-        code: handlerError.code
+      // Find subscription if available
+      let subscription = null;
+      if (razorpaySubscriptionId) {
+        subscription = await Subscription.findOne({ razorpaySubscriptionId });
+        logger.info('🔍 [WEBHOOK-HANDLER] Subscription lookup', {
+          razorpaySubscriptionId,
+          found: !!subscription,
+          subscriptionId: subscription?._id
+        });
+      }
+
+      // Route to appropriate handler based on event type
+      let result;
+      try {
+        logger.info(`🎬 [WEBHOOK-HANDLER] Routing to ${event} handler`);
+
+        switch (event) {
+          case 'subscription.authenticated':
+            result = await this.handleAuthenticated(payload, webhookEvent, subscription);
+            break;
+
+          case 'subscription.activated':
+            result = await this.handleActivated(payload, webhookEvent, subscription);
+            break;
+
+          case 'subscription.charged':
+            result = await this.handleCharged(payload, webhookEvent, subscription);
+            break;
+
+          case 'subscription.updated':
+            result = await this.handleUpdated(payload, webhookEvent, subscription);
+            break;
+
+          case 'subscription.pending':
+            result = await this.handlePending(payload, webhookEvent, subscription);
+            break;
+
+          case 'subscription.halted':
+            result = await this.handleHalted(payload, webhookEvent, subscription);
+            break;
+
+          case 'subscription.completed':
+            result = await this.handleCompleted(payload, webhookEvent, subscription);
+            break;
+
+          case 'subscription.cancelled':
+            result = await this.handleCancelled(payload, webhookEvent, subscription);
+            break;
+
+          // case 'payment.failed':
+          // result = await this.handlePaymentFailed(payload, webhookEvent, subscription);
+          // break;
+
+          default:
+            logger.warn('⚠️ [WEBHOOK-HANDLER] Unhandled event type', { event });
+            result = { success: true, message: 'Event received but not processed' };
+        }
+
+        logger.info('✅ [WEBHOOK-HANDLER] Event handler completed', {
+          event,
+          resultMessage: result.message
+        });
+
+        // Mark webhook as processed
+        if (subscription) {
+          await WebhookEvent.markProcessed(uniqueKey, subscription._id, subscription.userId);
+          logger.info('✅ [WEBHOOK-HANDLER] Marked as processed with subscription', {
+            uniqueKey,
+            subscriptionId: subscription._id
+          });
+        } else {
+          await WebhookEvent.markProcessed(uniqueKey, null, null);
+          logger.info('✅ [WEBHOOK-HANDLER] Marked as processed without subscription', {
+            uniqueKey
+          });
+        }
+
+        const processingTime = Date.now() - startTime;
+        logger.info('🎉 [WEBHOOK-HANDLER] Webhook processing complete', {
+          event,
+          uniqueKey,
+          processingTime: `${processingTime}ms`,
+          success: true
+        });
+
+        res.status(200).json({
+          success: true,
+          message: result.message || 'Webhook processed successfully',
+          processingTime: `${processingTime}ms`
+        });
+
+      } catch (handlerError) {
+        logger.error('❌ [WEBHOOK-HANDLER] Handler error', {
+          event,
+          error: handlerError.message,
+          stack: handlerError.stack,
+          uniqueKey
+        });
+
+        // Mark webhook as failed
+        await WebhookEvent.markFailed(uniqueKey, {
+          message: handlerError.message,
+          stack: handlerError.stack,
+          code: handlerError.code
+        });
+
+        throw handlerError;
+      }
+
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+
+      logger.error('❌ [WEBHOOK-HANDLER] Fatal error', {
+        event: req.body?.event,
+        error: error.message,
+        stack: error.stack,
+        processingTime: `${processingTime}ms`
       });
 
-      throw handlerError;
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message,
+        processingTime: `${processingTime}ms`
+      });
     }
-
-  } catch (error) {
-    const processingTime = Date.now() - startTime;
-
-    logger.error('❌ [WEBHOOK-HANDLER] Fatal error', {
-      event: req.body?.event,
-      error: error.message,
-      stack: error.stack,
-      processingTime: `${processingTime}ms`
-    });
-
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      message: error.message,
-      processingTime: `${processingTime}ms`
-    });
   }
-}
 
   /**
    * Handle subscription.authenticated event
@@ -1307,6 +1407,243 @@ async handleRazorpayWebhook(req, res) {
       };
     } catch (error) {
       logger.error('Error handling subscription.charged event', {
+        razorpaySubscriptionId: payload.subscription?.entity?.id,
+        subscriptionId: subscription?._id,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Handle subscription.updated event
+   * Triggered when subscription is updated immediately (proration charge for upgrades)
+   * Note: subscription.updated does NOT contain payment entity
+   * 
+   * @param {Object} payload - Webhook payload
+   * @param {Object} webhookEvent - Webhook event record
+   * @param {Object} subscription - Subscription document
+   * @returns {Promise<Object>} Result object
+   */
+  async handleUpdated(payload, webhookEvent, subscription) {
+    try {
+      const subscriptionEntity = payload.subscription.entity;
+
+      logger.info('Processing subscription.updated event', {
+        razorpaySubscriptionId: subscriptionEntity.id,
+        subscriptionId: subscription?._id,
+        status: subscriptionEntity.status,
+        planId: subscriptionEntity.plan_id,
+        hasScheduledChanges: subscriptionEntity.has_scheduled_changes
+      });
+
+      if (!subscription) {
+        throw new Error(`Subscription not found for Razorpay ID: ${subscriptionEntity.id}`);
+      }
+
+      // Update subscription details
+      subscription.status = subscriptionEntity.status;
+      subscription.currentPeriodStart = new Date(subscriptionEntity.current_start * 1000);
+      subscription.currentPeriodEnd = new Date(subscriptionEntity.current_end * 1000);
+      subscription.paidCount = subscriptionEntity.paid_count || subscription.paidCount;
+      subscription.remainingCount = subscriptionEntity.remaining_count || subscription.remainingCount;
+      subscription.totalCount = subscriptionEntity.total_count || subscription.totalCount;
+      subscription.chargeAt = subscriptionEntity.charge_at ? new Date(subscriptionEntity.charge_at * 1000) : null;
+
+      // Check if plan was changed (immediate upgrade)
+      const Plan = require('../models/Plan');
+
+      // Get current plan from DB (this is the OLD plan since controller didn't update it)
+      const currentPlan = await Plan.findById(subscription.planId);
+      if (!currentPlan) {
+        logger.error('Current plan not found', {
+          planId: subscription.planId,
+          subscriptionId: subscription._id
+        });
+        throw new Error(`Current plan not found: ${subscription.planId}`);
+      }
+
+      const currentPlanRazorpayId = currentPlan.razorpayPlanId;
+      const newPlanRazorpayId = subscriptionEntity.plan_id;
+
+      // Check if plan changed by comparing DB plan with Razorpay plan
+      if (currentPlanRazorpayId !== newPlanRazorpayId) {
+        // Plan changed! This is an immediate upgrade confirmed by Razorpay
+        logger.info('Plan change detected in subscription.updated', {
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          oldPlanRazorpayId: currentPlanRazorpayId,
+          newPlanRazorpayId: newPlanRazorpayId,
+          hasScheduledChanges: subscriptionEntity.has_scheduled_changes
+        });
+
+        // Find new plan in database
+        const newPlan = await Plan.findOne({ razorpayPlanId: newPlanRazorpayId });
+
+        if (!newPlan) {
+          logger.error('New plan not found in database', {
+            razorpayPlanId: newPlanRazorpayId,
+            subscriptionId: subscription._id
+          });
+          throw new Error(`Plan not found for Razorpay plan ID: ${newPlanRazorpayId}`);
+        }
+
+        // Determine changeType using FULL business logic (same as controller)
+        const currentAmount = currentPlan.pricing.amount;
+        const newAmount = newPlan.pricing.amount;
+        const currentInterval = currentPlan.pricing.interval;
+        const newInterval = newPlan.pricing.interval;
+
+        const intervalPriority = {
+          'daily': 1,
+          'weekly': 2,
+          'monthly': 3,
+          'yearly': 4
+        };
+
+        const currentIntervalPriority = intervalPriority[currentInterval] || 3;
+        const newIntervalPriority = intervalPriority[newInterval] || 3;
+
+        let changeType;
+        let changeReason;
+
+        // Rule 1: More money upfront = UPGRADE
+        if (newAmount > currentAmount) {
+          changeType = 'upgrade';
+          changeReason = 'higher_price';
+        }
+        // Rule 2: Same price but longer commitment = UPGRADE
+        else if (newAmount === currentAmount && newIntervalPriority > currentIntervalPriority) {
+          changeType = 'upgrade';
+          changeReason = 'longer_commitment';
+        }
+        // Rule 3: Less money upfront = DOWNGRADE
+        else if (newAmount < currentAmount) {
+          changeType = 'downgrade';
+          changeReason = 'lower_price';
+        }
+        // Rule 4: Same price but shorter commitment = DOWNGRADE
+        else if (newAmount === currentAmount && newIntervalPriority < currentIntervalPriority) {
+          changeType = 'downgrade';
+          changeReason = 'shorter_commitment';
+        }
+        // Rule 5: No change
+        else {
+          changeType = 'change';
+          changeReason = 'no_price_change';
+        }
+
+        logger.info('Plan change confirmed by Razorpay', {
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          changeType,
+          changeReason,
+          oldPlanAmount: currentPlan.pricing.amount,
+          oldPlanInterval: currentPlan.pricing.interval,
+          newPlanAmount: newPlan.pricing.amount,
+          newPlanInterval: newPlan.pricing.interval,
+          oldPlanName: currentPlan.name,
+          newPlanName: newPlan.name
+        });
+
+        // NOW update the DB (webhook is source of truth)
+        subscription.planId = newPlan._id;
+        subscription.billing = {
+          amount: newPlan.pricing.amount,
+          currency: newPlan.pricing.currency,
+          interval: newPlan.pricing.interval,
+          intervalCount: newPlan.pricing.intervalCount || 1
+        };
+
+        // Clear scheduledChange if it exists (plan change completed)
+        if (subscription.scheduledChange) {
+          logger.info('Clearing scheduledChange after plan change', {
+            subscriptionId: subscription._id,
+            userId: subscription.userId,
+            scheduledChange: subscription.scheduledChange
+          });
+          subscription.scheduledChange = undefined;
+        }
+
+        await subscription.save();
+
+        logger.info('Subscription plan updated in database', {
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          oldPlanId: currentPlan._id,
+          oldPlanName: currentPlan.name,
+          newPlanId: newPlan._id,
+          newPlanName: newPlan.name,
+          changeType
+        });
+
+        // Grant credits WITHOUT payment (subscription.updated has no payment entity)
+        // This will expire old credits and grant new credits atomically
+        try {
+          const creditResult = await this.grantSubscriptionCreditsWithoutPayment(subscription, {
+            source: 'subscription_updated_immediate',
+            changeType: changeType,
+            oldPlanId: currentPlan._id,
+            oldPlanName: currentPlan.name,
+            newPlanId: newPlan._id,
+            newPlanName: newPlan.name,
+            webhookEvent: 'subscription.updated'
+          });
+
+          logger.info('Credits granted for immediate plan change', {
+            subscriptionId: subscription._id,
+            userId: subscription.userId,
+            changeType,
+            creditsGranted: creditResult.creditsGranted,
+            oldCreditsExpired: creditResult.oldCreditsExpired,
+            oldPlanName: currentPlan.name,
+            newPlanName: newPlan.name
+          });
+        } catch (creditError) {
+          logger.error('Error granting credits for immediate plan change', {
+            subscriptionId: subscription._id,
+            userId: subscription.userId,
+            changeType,
+            error: creditError.message,
+            stack: creditError.stack,
+            note: 'Subscription updated but credits not granted - CRITICAL ERROR'
+          });
+          // Don't throw - subscription was updated successfully
+          // But this is a critical error that needs investigation
+        }
+
+        return {
+          success: true,
+          message: 'Subscription updated with immediate plan change',
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          planChanged: true,
+          changeType: changeType,
+          oldPlan: currentPlan.name,
+          newPlan: newPlan.name
+        };
+      }
+
+      // No plan change - just a regular update (quantity, status, etc.)
+      await subscription.save();
+
+      logger.info('Subscription updated successfully (no plan change)', {
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        status: subscription.status
+      });
+
+      return {
+        success: true,
+        message: 'Subscription updated successfully',
+        subscriptionId: subscription._id,
+        userId: subscription.userId,
+        planChanged: false
+      };
+
+    } catch (error) {
+      logger.error('Error handling subscription.updated event', {
         razorpaySubscriptionId: payload.subscription?.entity?.id,
         subscriptionId: subscription?._id,
         error: error.message,

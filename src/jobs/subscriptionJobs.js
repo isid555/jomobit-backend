@@ -361,6 +361,14 @@ class SubscriptionJobs {
   /**
    * Run scheduled plan change job
    * Processes scheduled plan changes that are due
+   * 
+   * @deprecated This job is now redundant. Razorpay handles scheduled changes
+   * via schedule_change_at: 'cycle_end' parameter. This job is kept for
+   * backward compatibility with any existing scheduledChange records that
+   * were created before the Razorpay integration was implemented.
+   * 
+   * New scheduled changes are handled directly by Razorpay and processed
+   * via subscription.updated webhook.
    */
   async runScheduledPlanChangeJob() {
     const startTime = Date.now();

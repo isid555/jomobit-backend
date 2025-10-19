@@ -2,6 +2,134 @@ const SubscriptionService = require('../services/subscriptionService');
 const logger = require('../utils/logger');
 const razorpay = require('../config/razorpay.config');
 const Plan = require('../models/Plan');
+
+/**
+ * Determine change type from BUSINESS REVENUE perspective
+ * Philosophy: Money NOW > Money LATER, Annual commitment > Monthly flexibility
+ * 
+ * @param {Object} currentPlan - Current plan
+ * @param {Object} newPlan - New plan
+ * @returns {Object} { changeType, reason, description }
+ */
+function determineChangeType(currentPlan, newPlan) {
+  const currentAmount = currentPlan.pricing.amount;
+  const newAmount = newPlan.pricing.amount;
+  const currentInterval = currentPlan.pricing.interval;
+  const newInterval = newPlan.pricing.interval;
+
+  const intervalPriority = {
+    'daily': 1,
+    'weekly': 2,
+    'monthly': 3,
+    'yearly': 4
+  };
+
+  const currentIntervalPriority = intervalPriority[currentInterval] || 3;
+  const newIntervalPriority = intervalPriority[newInterval] || 3;
+
+  logger.info('Determining change type from business perspective', {
+    currentPlan: currentPlan.planId,
+    currentAmount,
+    currentInterval,
+    currentIntervalPriority,
+    newPlan: newPlan.planId,
+    newAmount,
+    newInterval,
+    newIntervalPriority
+  });
+
+  // Rule 1: More money upfront = UPGRADE
+  if (newAmount > currentAmount) {
+    return {
+      changeType: 'upgrade',
+      reason: 'higher_price',
+      description: `New plan costs more (₹${newAmount / 100} vs ₹${currentAmount / 100})`
+    };
+  }
+
+  // Rule 2: Same price but longer commitment = UPGRADE
+  if (newAmount === currentAmount && newIntervalPriority > currentIntervalPriority) {
+    return {
+      changeType: 'upgrade',
+      reason: 'longer_commitment',
+      description: `Same price but longer billing interval (${newInterval} vs ${currentInterval})`
+    };
+  }
+
+  // Rule 3: Less money upfront = DOWNGRADE
+  if (newAmount < currentAmount) {
+    return {
+      changeType: 'downgrade',
+      reason: 'lower_price',
+      description: `New plan costs less (₹${newAmount / 100} vs ₹${currentAmount / 100})`
+    };
+  }
+
+  // Rule 4: Same price but shorter commitment = DOWNGRADE
+  if (newAmount === currentAmount && newIntervalPriority < currentIntervalPriority) {
+    return {
+      changeType: 'downgrade',
+      reason: 'shorter_commitment',
+      description: `Same price but shorter billing interval (${newInterval} vs ${currentInterval})`
+    };
+  }
+
+  // Rule 5: No change
+  return {
+    changeType: 'change',
+    reason: 'no_price_change',
+    description: 'No price or interval change'
+  };
+}
+
+/**
+ * Get 10-year cycle count based on billing interval
+ * This ensures all subscriptions have a long-term horizon that refreshes on plan changes
+ * 
+ * @param {string} interval - Billing interval (daily, weekly, monthly, yearly)
+ * @returns {number} Number of cycles for 10 years
+ */
+function getTenYearCycle(interval) {
+  const tenYearCycles = {
+    'daily': 3650,   // 10 years = 3650 days
+    'weekly': 520,   // 10 years ≈ 520 weeks
+    'monthly': 120,  // 10 years = 120 months
+    'yearly': 10     // 10 years = 10 years
+  };
+  
+  return tenYearCycles[interval] || 120; // Default to monthly if unknown
+}
+
+/**
+ * Calculate remaining_count for Razorpay when billing intervals differ
+ * Razorpay requires this parameter when changing between different billing periods
+ * 
+ * @param {Object} currentPlan - Current plan with pricing.interval
+ * @param {Object} newPlan - New plan with pricing.interval
+ * @param {Object} subscription - Current subscription with totalCount, remainingCount
+ * @param {boolean} isScheduled - Whether this is a scheduled change (cycle_end) or immediate
+ * @returns {number|null} remaining_count value, or null if not needed
+ */
+function calculateRemainingCount(currentPlan, newPlan, subscription, isScheduled) {
+  // If intervals are the same, no need for remaining_count
+  if (currentPlan.pricing.interval === newPlan.pricing.interval) {
+    return null;
+  }
+
+  // Always refresh to 10-year cycle for new plan
+  const remainingCount = getTenYearCycle(newPlan.pricing.interval);
+
+  logger.info('Refreshing to 10-year cycle on plan change', {
+    currentInterval: currentPlan.pricing.interval,
+    newInterval: newPlan.pricing.interval,
+    remainingCount: remainingCount,
+    changeType: isScheduled ? 'scheduled' : 'immediate',
+    duration: '10 years'
+  });
+
+  return remainingCount;
+}
+
 /**
  * Subscription Controller
  * Handles subscription and payment management endpoints
@@ -33,7 +161,9 @@ class SubscriptionController {
   async createSubscription(req, res) {
     try {
       const userId = req.user.id; // Auth0 ID
-      const { planId, totalCount = 1, customerNotify = true, notes = {} } = req.body;
+      const { planId, customerNotify = true, notes = {} } = req.body;
+      // Note: totalCount is no longer accepted from user input
+      // It's calculated automatically based on plan interval (10-year cycle)
 
       // Validate planId
       if (!planId) {
@@ -60,6 +190,16 @@ class SubscriptionController {
           message: 'Invalid plan ID provided'
         });
       }
+
+      // Calculate 10-year cycle based on plan interval
+      const totalCount = getTenYearCycle(plan.pricing.interval);
+
+      logger.info('Creating subscription with 10-year cycle', {
+        planId: plan.planId,
+        interval: plan.pricing.interval,
+        totalCount: totalCount,
+        duration: '10 years'
+      });
 
       // Check for existing active subscription
       const Subscription = require('../models/Subscription');
@@ -127,7 +267,12 @@ class SubscriptionController {
         logger.info('Created Razorpay subscription', {
           razorpaySubscriptionId: razorpaySubscription.id,
           planId: plan.planId,
-          userId: actualUserId
+          userId: actualUserId,
+          calculatedTotalCount: totalCount,
+          razorpayTotalCount: razorpaySubscription.total_count,
+          razorpayPaidCount: razorpaySubscription.paid_count,
+          razorpayRemainingCount: razorpaySubscription.remaining_count,
+          duration: '10 years'
         });
       } catch (error) {
         logger.error('Error creating Razorpay subscription:', error);
@@ -153,7 +298,8 @@ class SubscriptionController {
           intervalCount: plan.pricing.intervalCount
         },
         shortUrl: razorpaySubscription.short_url,
-        totalCount: razorpaySubscription.total_count,
+        // Use requested totalCount, not Razorpay's response (Razorpay may return 0 for unlimited)
+        totalCount: totalCount,
         paidCount: razorpaySubscription.paid_count || 0,
         remainingCount: razorpaySubscription.remaining_count || totalCount,
         startAt: razorpaySubscription.start_at ? new Date(razorpaySubscription.start_at * 1000) : null,
@@ -495,11 +641,41 @@ class SubscriptionController {
         });
       }
 
-      // Determine changeType (upgrade if new amount > current, else downgrade)
-      const changeType = newPlan.pricing.amount > currentPlan.pricing.amount ? 'upgrade' : 'downgrade';
+      // Determine changeType using business logic
+      const changeResult = determineChangeType(currentPlan, newPlan);
+      const changeType = changeResult.changeType;
+
+      logger.info('Change type determined', {
+        userId: actualUserId,
+        subscriptionId: subscription._id,
+        fromPlan: currentPlan.planId,
+        toPlan: newPlan.planId,
+        changeType: changeResult.changeType,
+        reason: changeResult.reason,
+        description: changeResult.description
+      });
+
+      // IMPORTANT: Downgrades are ALWAYS scheduled, never immediate
+      // Protect business revenue by preventing immediate refunds
+      let effectiveImmediate = immediate;
+      if (changeType === 'downgrade' && immediate === true) {
+        logger.info('Downgrade requested with immediate=true, forcing scheduled change', {
+          userId: actualUserId,
+          subscriptionId: subscription._id,
+          fromPlan: currentPlan.planId,
+          toPlan: newPlan.planId,
+          fromAmount: currentPlan.pricing.amount,
+          toAmount: newPlan.pricing.amount,
+          reason: changeResult.reason,
+          note: 'Downgrades are always scheduled to protect revenue and prevent immediate refunds'
+        });
+
+        // Override immediate flag for downgrades
+        effectiveImmediate = false;
+      }
 
       // Handle immediate upgrade/downgrade
-      if (immediate === true) {
+      if (effectiveImmediate === true) {
         logger.info('Processing immediate plan change', {
           userId: actualUserId,
           subscriptionId: subscription._id,
@@ -511,13 +687,21 @@ class SubscriptionController {
 
         try {
           // Update subscription in Razorpay with immediate effect
+          const updateParams = {
+            plan_id: newPlan.razorpayPlanId,
+            schedule_change_at: 'now',
+            quantity: 1
+          };
+
+          // Calculate remaining_count if billing intervals differ
+          const remainingCount = calculateRemainingCount(currentPlan, newPlan, subscription, false);
+          if (remainingCount !== null) {
+            updateParams.remaining_count = remainingCount;
+          }
+
           const razorpayResponse = await razorpay.subscriptions.update(
             subscription.razorpaySubscriptionId,
-            {
-              plan_id: newPlan.razorpayPlanId,
-              schedule_change_at: 'now',
-              quantity: 1
-            }
+            updateParams
           );
 
           logger.info('Razorpay subscription updated successfully', {
@@ -528,16 +712,10 @@ class SubscriptionController {
             remainingCount: razorpayResponse.remaining_count
           });
 
-          // Update local subscription immediately
-          subscription.planId = newPlan._id;
-          subscription.billing = {
-            amount: newPlan.pricing.amount,
-            currency: newPlan.pricing.currency,
-            interval: newPlan.pricing.interval,
-            intervalCount: newPlan.pricing.intervalCount || 1
-          };
+          // DON'T update subscription.planId here - let webhook do it!
+          // This allows webhook to detect the plan change by comparing DB vs Razorpay
 
-          // Update Razorpay sync fields
+          // Update Razorpay sync fields only
           if (razorpayResponse.paid_count !== undefined) {
             subscription.paidCount = razorpayResponse.paid_count;
           }
@@ -548,14 +726,13 @@ class SubscriptionController {
             subscription.chargeAt = new Date(razorpayResponse.charge_at * 1000);
           }
 
-          // Record the plan change in history
+          // Record the plan change intent in history (for audit trail only)
           subscription.planChanges.push({
             fromPlanId: currentPlan._id,
             toPlanId: newPlan._id,
             changeType: changeType,
             effectiveDate: new Date(),
-            reason: reason,
-            immediate: true
+            reason: reason || 'immediate_upgrade'
           });
 
           // Clear any scheduled changes
@@ -563,19 +740,19 @@ class SubscriptionController {
 
           await subscription.save();
 
-          logger.info('Immediate plan change completed successfully', {
+          logger.info('Immediate plan change requested, waiting for webhook confirmation', {
             userId: actualUserId,
             subscriptionId: subscription._id,
             fromPlan: currentPlan.planId,
             toPlan: newPlan.planId,
             changeType: changeType,
-            note: 'Credits will be updated via subscription.charged webhook'
+            note: 'Subscription and credits will be updated when subscription.updated webhook arrives'
           });
 
           // Return success response
           return res.json({
             success: true,
-            message: `Plan ${changeType} applied immediately. ${changeType === 'upgrade' ? 'Prorated charge will be processed.' : 'Credit will be applied to next billing cycle.'}`,
+            message: `Plan ${changeType} initiated successfully. Changes will be confirmed by payment processor.`,
             immediate: true,
             subscription: {
               _id: subscription._id,
@@ -620,7 +797,7 @@ class SubscriptionController {
         }
       }
 
-      // Handle scheduled upgrade/downgrade (existing behavior)
+      // Handle scheduled upgrade/downgrade
       logger.info('Scheduling plan change for end of billing cycle', {
         userId: actualUserId,
         subscriptionId: subscription._id,
@@ -630,54 +807,101 @@ class SubscriptionController {
         effectiveDate: subscription.currentPeriodEnd
       });
 
-      // Create scheduledChange object with newPlanId, changeType, effectiveDate=currentPeriodEnd, requestedAt, reason
-      subscription.scheduledChange = {
-        newPlanId: newPlan._id,
-        changeType: changeType,
-        effectiveDate: subscription.currentPeriodEnd,
-        requestedAt: new Date(),
-        reason: reason
-      };
+      // Call Razorpay immediately with schedule_change_at: 'cycle_end'
+      // Let Razorpay handle the timing instead of relying on our cron job
+      try {
+        const updateParams = {
+          plan_id: newPlan.razorpayPlanId,
+          schedule_change_at: 'cycle_end',
+          quantity: 1
+        };
 
-      await subscription.save();
+        // Calculate remaining_count if billing intervals differ
+        // Razorpay requires this even for cycle_end changes when periods differ
+        const remainingCount = calculateRemainingCount(currentPlan, newPlan, subscription, true);
+        if (remainingCount !== null) {
+          updateParams.remaining_count = remainingCount;
+        }
 
-      logger.info('Plan change scheduled', {
-        userId: actualUserId,
-        subscriptionId: subscription._id,
-        fromPlan: currentPlan.planId,
-        toPlan: newPlan.planId,
-        changeType: changeType,
-        effectiveDate: subscription.currentPeriodEnd
-      });
+        const razorpayResponse = await razorpay.subscriptions.update(
+          subscription.razorpaySubscriptionId,
+          updateParams
+        );
 
-      // Return subscription with oldPlan, newPlan, changeType, scheduledFor date
-      res.json({
-        success: true,
-        message: `Plan ${changeType} scheduled for ${subscription.currentPeriodEnd.toISOString()}`,
-        immediate: false,
-        subscription: {
-          _id: subscription._id,
-          status: subscription.status,
-          currentPeriodEnd: subscription.currentPeriodEnd,
-          scheduledChange: subscription.scheduledChange
-        },
-        oldPlan: {
-          _id: currentPlan._id,
-          name: currentPlan.name,
-          planId: currentPlan.planId,
-          pricing: currentPlan.pricing,
-          features: currentPlan.features
-        },
-        newPlan: {
-          _id: newPlan._id,
-          name: newPlan.name,
-          planId: newPlan.planId,
-          pricing: newPlan.pricing,
-          features: newPlan.features
-        },
-        changeType: changeType,
-        scheduledFor: subscription.currentPeriodEnd
-      });
+        logger.info('Razorpay subscription scheduled for cycle_end change', {
+          razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+          newPlanId: newPlan.razorpayPlanId,
+          scheduleChangeAt: 'cycle_end',
+          razorpayStatus: razorpayResponse.status
+        });
+
+        // Store scheduledChange for UI/audit purposes only
+        // Razorpay is now the source of truth for execution
+        subscription.scheduledChange = {
+          newPlanId: newPlan._id,
+          changeType: changeType,
+          effectiveDate: subscription.currentPeriodEnd,
+          requestedAt: new Date(),
+          reason: reason,
+          razorpayScheduled: true // Flag to indicate Razorpay is handling it
+        };
+
+        await subscription.save();
+
+        logger.info('Plan change scheduled', {
+          userId: actualUserId,
+          subscriptionId: subscription._id,
+          fromPlan: currentPlan.planId,
+          toPlan: newPlan.planId,
+          changeType: changeType,
+          effectiveDate: subscription.currentPeriodEnd
+        });
+
+        // Return subscription with oldPlan, newPlan, changeType, scheduledFor date
+        res.json({
+          success: true,
+          message: `Plan ${changeType} scheduled for ${subscription.currentPeriodEnd.toISOString()}`,
+          immediate: false,
+          subscription: {
+            _id: subscription._id,
+            status: subscription.status,
+            currentPeriodEnd: subscription.currentPeriodEnd,
+            scheduledChange: subscription.scheduledChange
+          },
+          oldPlan: {
+            _id: currentPlan._id,
+            name: currentPlan.name,
+            planId: currentPlan.planId,
+            pricing: currentPlan.pricing,
+            features: currentPlan.features
+          },
+          newPlan: {
+            _id: newPlan._id,
+            name: newPlan.name,
+            planId: newPlan.planId,
+            pricing: newPlan.pricing,
+            features: newPlan.features
+          },
+          changeType: changeType,
+          scheduledFor: subscription.currentPeriodEnd
+        });
+
+      } catch (razorpayError) {
+        logger.error('Error scheduling plan change in Razorpay', {
+          razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+          newPlanId: newPlan.razorpayPlanId,
+          error: razorpayError.message,
+          errorCode: razorpayError.statusCode,
+          errorDescription: razorpayError.error?.description
+        });
+
+        return res.status(500).json({
+          success: false,
+          error: 'RAZORPAY_SCHEDULE_FAILED',
+          message: 'Failed to schedule plan change in Razorpay',
+          details: razorpayError.error?.description || razorpayError.message
+        });
+      }
 
     } catch (error) {
       if (error.name === 'UserNotFoundError') {

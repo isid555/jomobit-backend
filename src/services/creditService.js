@@ -54,7 +54,7 @@ class CreditService {
 
   async _grantDefaultCreditsWithTransaction(userId, amount, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._grantDefaultCreditsCore(userId, amount, metadata, session);
@@ -92,7 +92,7 @@ class CreditService {
     // Get or create wallet
     const query = CreditWallet.findOne({ userId });
     let wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       wallet = new CreditWallet({
         userId,
@@ -196,7 +196,7 @@ class CreditService {
 
   async _grantSubscriptionCreditsWithTransaction(userId, amount, expiryDate, subscriptionId, paymentId, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._grantSubscriptionCreditsCore(userId, amount, expiryDate, subscriptionId, paymentId, metadata, session);
@@ -246,7 +246,7 @@ class CreditService {
       const Payment = require('../models/Payment');
       const paymentQuery = Payment.findOne({ razorpayPaymentId: paymentId });
       const payment = session ? await paymentQuery.session(session) : await paymentQuery;
-      
+
       if (payment && payment.processed) {
         logger.info('Credit deduplication: payment already processed, skipping credit grant', {
           userId,
@@ -257,7 +257,7 @@ class CreditService {
           deduplicationDetected: true,
           operation: 'grant_subscription_credits'
         });
-        
+
         // Return success without processing
         const wallet = await CreditWallet.findOne({ userId });
         return {
@@ -273,7 +273,7 @@ class CreditService {
     // Get or create wallet
     const query = CreditWallet.findOne({ userId });
     let wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       wallet = new CreditWallet({
         userId,
@@ -395,13 +395,13 @@ class CreditService {
       const Payment = require('../models/Payment');
       const paymentQuery = Payment.findOne({ razorpayPaymentId: paymentId });
       const payment = session ? await paymentQuery.session(session) : await paymentQuery;
-      
+
       if (payment) {
         payment.creditsGranted = amount;
         payment.processed = true;
         payment.processedAt = new Date();
         await payment.save(session ? { session } : {});
-        
+
         logger.info('Payment marked as processed', {
           paymentId,
           creditsGranted: amount,
@@ -449,7 +449,7 @@ class CreditService {
 
   async _reserveCreditsWithTransaction(userId, amount, jobId, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._reserveCreditsCore(userId, amount, jobId, metadata, session);
@@ -489,7 +489,7 @@ class CreditService {
     // Get wallet
     const query = CreditWallet.findOne({ userId });
     const wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       throw new CreditOperationError(
         'Credit wallet not found for user',
@@ -598,7 +598,7 @@ class CreditService {
 
   async _deductReservedCreditsWithTransaction(jobId, userId, amount, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._deductReservedCreditsCore(jobId, userId, amount, metadata, session);
@@ -638,7 +638,7 @@ class CreditService {
     // Get wallet
     const query = CreditWallet.findOne({ userId });
     const wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       throw new CreditOperationError(
         'Credit wallet not found for user',
@@ -700,20 +700,20 @@ class CreditService {
 
     // Deduct credits (subscription first, then default)
     let remainingToDeduct = amount;
-    
+
     // First, deduct from subscription credits
     const fromSubscription = Math.min(remainingToDeduct, wallet.subscriptionCredits);
     wallet.subscriptionCredits -= fromSubscription;
     remainingToDeduct -= fromSubscription;
-    
+
     // Then, deduct from default credits if needed
     if (remainingToDeduct > 0) {
       wallet.defaultCredits -= remainingToDeduct;
     }
-    
+
     // Release reserved credits
     wallet.reservedCredits -= amount;
-    
+
     await wallet.save(session ? { session } : {});
 
     // Store balance after transaction
@@ -729,8 +729,8 @@ class CreditService {
       userId,
       type: 'deduct',
       amount: -amount, // Negative for deduction
-      creditType: fromSubscription > 0 && remainingToDeduct === 0 ? 'subscription' : 
-                 fromSubscription === 0 ? 'default' : 'mixed',
+      creditType: fromSubscription > 0 && remainingToDeduct === 0 ? 'subscription' :
+        fromSubscription === 0 ? 'default' : 'mixed',
       reference: {
         type: 'generation',
         id: jobId,
@@ -791,7 +791,7 @@ class CreditService {
 
   async _releaseReservedCreditsWithTransaction(jobId, userId, amount, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._releaseReservedCreditsCore(jobId, userId, amount, metadata, session);
@@ -831,7 +831,7 @@ class CreditService {
     // Get wallet
     const query = CreditWallet.findOne({ userId });
     const wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       throw new CreditOperationError(
         'Credit wallet not found for user',
@@ -973,7 +973,7 @@ class CreditService {
 
   async _grantSubscriptionCreditsWithPaymentTransaction(userId, subscriptionId, paymentId, amount, expiryDate, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._grantSubscriptionCreditsWithPaymentCore(userId, subscriptionId, paymentId, amount, expiryDate, metadata, session);
@@ -1011,7 +1011,7 @@ class CreditService {
 
   async _grantSubscriptionCreditsWithPaymentCore(userId, subscriptionId, paymentId, amount, expiryDate, metadata, session) {
     const Payment = require('../models/Payment');
-    
+
     logger.info('Starting atomic credit operation with payment deduplication', {
       userId,
       subscriptionId,
@@ -1023,7 +1023,7 @@ class CreditService {
     // Step 1: Check payment deduplication
     const paymentQuery = Payment.findOne({ razorpayPaymentId: paymentId });
     const payment = session ? await paymentQuery.session(session) : await paymentQuery;
-    
+
     if (!payment) {
       throw new CreditOperationError(
         'Payment record not found',
@@ -1039,7 +1039,7 @@ class CreditService {
         creditsGranted: payment.creditsGranted,
         processedAt: payment.processedAt
       });
-      
+
       const wallet = await CreditWallet.findOne({ userId });
       return {
         success: true,
@@ -1053,7 +1053,7 @@ class CreditService {
     // Step 2: Get or create wallet
     const walletQuery = CreditWallet.findOne({ userId });
     let wallet = session ? await walletQuery.session(session) : await walletQuery;
-    
+
     if (!wallet) {
       wallet = new CreditWallet({
         userId,
@@ -1204,7 +1204,7 @@ class CreditService {
 
   async _expireSubscriptionCreditsWithTransaction(expiryDate) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._expireSubscriptionCreditsCore(expiryDate, session);
@@ -1249,7 +1249,7 @@ class CreditService {
 
     for (const wallet of expiredWallets) {
       const expiredAmount = wallet.subscriptionCredits;
-      
+
       if (expiredAmount > 0) {
         // Store balance before transaction
         const balanceBefore = {
@@ -1327,7 +1327,7 @@ class CreditService {
   async getCreditBalance(userId) {
     try {
       const wallet = await CreditWallet.findByUserId(userId);
-      
+
       if (!wallet) {
         return {
           userId,
@@ -1392,7 +1392,7 @@ class CreditService {
     try {
       const balance = await this.getCreditBalance(userId);
       const hasSufficient = balance.availableCredits >= requiredAmount;
-      
+
       return {
         userId,
         requiredAmount,
