@@ -140,6 +140,7 @@ class SubscriptionController {
 
     // Bind all methods that use 'this' to preserve context
     this.createSubscription = this.createSubscription.bind(this);
+    this.verifySubscriptionPayment = this.verifySubscriptionPayment.bind(this);
     this.getCurrentSubscription = this.getCurrentSubscription.bind(this);
     this.getSubscriptionById = this.getSubscriptionById.bind(this);
     this.getSubscriptionHistory = this.getSubscriptionHistory.bind(this);
@@ -203,12 +204,12 @@ class SubscriptionController {
 
       // Check for existing active subscription
       const Subscription = require('../models/Subscription');
-      const existingSubscription = await Subscription.getUserActiveSubscription(actualUserId);
+      const existingSubscription = await Subscription.getUserPendingOrActiveSubscription(actualUserId);
       if (existingSubscription) {
         return res.status(409).json({
           success: false,
-          error: 'Active subscription exists',
-          message: 'User already has an active subscription',
+          error: 'subscription exists in created, authenticated, active or pending state',
+          message: 'User already has a subscription. Cannot have more than one susbcription',
           subscription: existingSubscription.toObject()
         });
       }
@@ -361,6 +362,77 @@ class SubscriptionController {
   }
 
   /**
+   * Verify subscription payment signature
+   * POST /api/subscriptions/verify
+   */
+  async verifySubscriptionPayment(req, res) {
+    try {
+      const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature } = req.body;
+
+      // Validate required fields
+      if (!razorpay_payment_id || !razorpay_subscription_id || !razorpay_signature) {
+        return res.status(400).json({
+          success: false,
+          error: 'VALIDATION_ERROR',
+          message: 'Missing required payment verification parameters',
+          details: {
+            required: ['razorpay_payment_id', 'razorpay_subscription_id', 'razorpay_signature']
+          }
+        });
+      }
+
+      // Verify signature using Razorpay's method
+      const crypto = require('crypto');
+      const razorpaySecret = process.env.RAZORPAY_KEY_SECRET;
+
+      const generatedSignature = crypto
+        .createHmac('sha256', razorpaySecret)
+        .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+        .digest('hex');
+
+      const isValid = generatedSignature === razorpay_signature;
+
+      if (isValid) {
+        logger.info('Payment signature verified successfully', {
+          razorpay_payment_id,
+          razorpay_subscription_id,
+          verified: true
+        });
+
+        return res.json({
+          success: true,
+          verified: true,
+          message: 'Payment signature verified successfully',
+          data: {
+            razorpay_payment_id,
+            razorpay_subscription_id
+          }
+        });
+      } else {
+        logger.warn('Payment signature verification failed', {
+          razorpay_payment_id,
+          razorpay_subscription_id,
+          verified: false
+        });
+
+        return res.status(400).json({
+          success: false,
+          verified: false,
+          error: 'SIGNATURE_VERIFICATION_FAILED',
+          message: 'Payment signature verification failed'
+        });
+      }
+    } catch (error) {
+      logger.error('Error verifying payment signature:', error);
+      res.status(500).json({
+        success: false,
+        error: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to verify payment signature'
+      });
+    }
+  }
+
+  /**
    * Get user's current subscription
    * GET /api/subscriptions/current
    */
@@ -375,7 +447,7 @@ class SubscriptionController {
       const actualUserId = userResult.user._id;
 
       const Subscription = require('../models/Subscription');
-      const subscription = await Subscription.getUserActiveSubscription(actualUserId);
+      const subscription = await Subscription.getUserPendingOrActiveSubscription(actualUserId);
 
       if (!subscription) {
         return res.status(404).json({
@@ -924,11 +996,12 @@ class SubscriptionController {
   /**
    * Cancel subscription
    * POST /api/subscriptions/cancel
+   * Always cancels at cycle end (cancel_at_cycle_end: true)
    */
   async cancelSubscription(req, res) {
     try {
       const userId = req.user.id;
-      const { immediately = false, reason = 'user_cancellation' } = req.body;
+      const { reason = 'user_cancellation' } = req.body;
 
       // Get user by Auth0 ID first
       const UserService = require('../services/userService');
@@ -938,7 +1011,7 @@ class SubscriptionController {
 
       // Find user's active subscription
       const Subscription = require('../models/Subscription');
-      const subscription = await Subscription.getUserActiveSubscription(actualUserId);
+      const subscription = await Subscription.getUserPendingOrActiveSubscription(actualUserId);
 
       if (!subscription) {
         return res.status(404).json({
@@ -948,71 +1021,72 @@ class SubscriptionController {
         });
       }
 
-      // If immediately=true: cancel on Razorpay immediately and set status='cancelled'
-      if (immediately) {
-        try {
-          // Cancel on Razorpay
-          await razorpay.subscriptions.cancel(subscription.razorpaySubscriptionId);
-
-          subscription.status = 'cancelled';
-          subscription.cancelledAt = new Date();
-          if (reason) {
-            subscription.cancellationReason = reason;
+      // Check if already scheduled for cancellation
+      if (subscription.cancelAtPeriodEnd) {
+        return res.status(400).json({
+          success: false,
+          error: 'ALREADY_SCHEDULED_FOR_CANCELLATION',
+          message: 'Subscription is already scheduled for cancellation at period end',
+          subscription: {
+            _id: subscription._id,
+            status: subscription.status,
+            cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+            accessUntil: subscription.currentPeriodEnd
           }
-          await subscription.save();
-
-          logger.info('Subscription cancelled immediately', {
-            userId: actualUserId,
-            subscriptionId: subscription._id,
-            razorpaySubscriptionId: subscription.razorpaySubscriptionId
-          });
-
-          return res.json({
-            success: true,
-            message: 'Subscription cancelled immediately',
-            subscription: {
-              _id: subscription._id,
-              status: subscription.status,
-              cancelledAt: subscription.cancelledAt,
-              accessUntil: subscription.currentPeriodEnd
-            }
-          });
-        } catch (razorpayError) {
-          logger.error('Error cancelling subscription on Razorpay:', razorpayError);
-          return res.status(500).json({
-            success: false,
-            error: 'Razorpay error',
-            message: 'Failed to cancel subscription on Razorpay'
-          });
-        }
+        });
       }
 
-      // If immediately=false: set cancelAtPeriodEnd=true
-      subscription.cancelAtPeriodEnd = true;
-      if (reason) {
-        subscription.cancellationReason = reason;
-      }
-      await subscription.save();
+      try {
+        // Cancel on Razorpay with cancel_at_cycle_end: true
+        await razorpay.subscriptions.cancel(
+          subscription.razorpaySubscriptionId,
+          { cancel_at_cycle_end: true }
+        );
 
-      logger.info('Subscription scheduled for cancellation', {
-        userId: actualUserId,
-        subscriptionId: subscription._id,
-        cancelAtPeriodEnd: true,
-        accessUntil: subscription.currentPeriodEnd
-      });
-
-      // Return subscription with cancelledAt and accessUntil dates
-      res.json({
-        success: true,
-        message: 'Subscription will be cancelled at the end of the current billing period',
-        subscription: {
-          _id: subscription._id,
-          status: subscription.status,
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          cancelledAt: null,
-          accessUntil: subscription.currentPeriodEnd
+        // Update local subscription
+        subscription.cancelAtPeriodEnd = true;
+        if (reason) {
+          subscription.cancellationReason = reason;
         }
-      });
+        await subscription.save();
+
+        logger.info('Subscription scheduled for cancellation at cycle end', {
+          userId: actualUserId,
+          subscriptionId: subscription._id,
+          razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+          cancelAtPeriodEnd: true,
+          accessUntil: subscription.currentPeriodEnd,
+          reason
+        });
+
+        // Return subscription with cancelAtPeriodEnd and accessUntil dates
+        return res.json({
+          success: true,
+          message: `Subscription will be cancelled at the end of the current billing period on ${subscription.currentPeriodEnd.toISOString().split('T')[0]}. You will continue to have access until then.`,
+          subscription: {
+            _id: subscription._id,
+            status: subscription.status,
+            cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+            accessUntil: subscription.currentPeriodEnd,
+            cancellationReason: reason
+          }
+        });
+
+      } catch (razorpayError) {
+        logger.error('Error cancelling subscription on Razorpay', {
+          razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+          error: razorpayError.message,
+          errorCode: razorpayError.statusCode,
+          errorDescription: razorpayError.error?.description
+        });
+
+        return res.status(500).json({
+          success: false,
+          error: 'RAZORPAY_CANCELLATION_FAILED',
+          message: 'Failed to cancel subscription on Razorpay',
+          details: razorpayError.error?.description || razorpayError.message
+        });
+      }
 
     } catch (error) {
       if (error.name === 'UserNotFoundError') {

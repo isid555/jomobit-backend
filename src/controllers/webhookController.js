@@ -1829,7 +1829,7 @@ class WebhookController {
 
   /**
    * Handle subscription.cancelled event
-   * User cancelled subscription
+   * Fires when subscription is cancelled at cycle end
    * @param {Object} payload - Webhook payload
    * @param {Object} webhookEvent - WebhookEvent document
    * @param {Object} subscription - Subscription document
@@ -1841,7 +1841,9 @@ class WebhookController {
 
       logger.info('Processing subscription.cancelled event', {
         razorpaySubscriptionId: subscriptionEntity.id,
-        subscriptionId: subscription?._id
+        subscriptionId: subscription?._id,
+        userId: subscription?.userId,
+        event: 'subscription.cancelled'
       });
 
       if (!subscription) {
@@ -1863,26 +1865,75 @@ class WebhookController {
 
       await subscription.save();
 
-      // Do NOT expire credits immediately - let them use until currentPeriodEnd
-      logger.info('Subscription cancelled, credits valid until period end', {
+      logger.info('Subscription status updated to cancelled', {
         subscriptionId: subscription._id,
         userId: subscription.userId,
         status: subscription.status,
         endedAt: subscription.endedAt,
-        cancelledAt: subscription.cancelledAt,
-        currentPeriodEnd: subscription.currentPeriodEnd
+        cancelledAt: subscription.cancelledAt
       });
 
-      return {
-        success: true,
-        message: 'Subscription cancelled, credits valid until period end',
-        subscriptionId: subscription._id,
-        userId: subscription.userId
-      };
+      // Expire subscription credits immediately and revoke access
+      const { CreditService } = require('../services/creditService');
+      const creditService = new CreditService();
+
+      try {
+        const creditResult = await creditService.expireUserSubscriptionCredits(
+          subscription.userId,
+          'subscription_cancelled',
+          {
+            subscriptionId: subscription._id.toString(),
+            razorpaySubscriptionId: subscriptionEntity.id,
+            cancelledAt: subscription.cancelledAt,
+            source: 'webhook_subscription_cancelled'
+          }
+        );
+
+        logger.info('Subscription credits expired and access revoked', {
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          creditsExpired: creditResult.creditsExpired,
+          status: 'cancelled',
+          accessRevoked: true,
+          event: 'subscription.cancelled'
+        });
+
+        return {
+          success: true,
+          message: 'Subscription cancelled, credits expired, and access revoked',
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          creditsExpired: creditResult.creditsExpired,
+          accessRevoked: true
+        };
+
+      } catch (creditError) {
+        logger.error('Error expiring credits during cancellation', {
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          error: creditError.message,
+          stack: creditError.stack,
+          note: 'Subscription status updated but credit expiry failed'
+        });
+
+        // Don't throw - subscription is already cancelled
+        // Return partial success
+        return {
+          success: true,
+          message: 'Subscription cancelled but credit expiry failed',
+          subscriptionId: subscription._id,
+          userId: subscription.userId,
+          creditsExpired: 0,
+          accessRevoked: true,
+          warning: 'Credit expiry failed, may need manual intervention'
+        };
+      }
+
     } catch (error) {
       logger.error('Error handling subscription.cancelled event', {
         razorpaySubscriptionId: payload.subscription?.entity?.id,
         subscriptionId: subscription?._id,
+        userId: subscription?.userId,
         error: error.message,
         stack: error.stack
       });

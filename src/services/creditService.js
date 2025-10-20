@@ -1320,6 +1320,152 @@ class CreditService {
   }
 
   /**
+   * Expire subscription credits for a specific user (used for cancellations)
+   * @param {string|ObjectId} userId - User ID
+   * @param {string} reason - Reason for expiration (e.g., 'subscription_cancelled')
+   * @param {Object} metadata - Additional metadata
+   * @returns {Promise<Object>} Operation result
+   */
+  async expireUserSubscriptionCredits(userId, reason = 'subscription_cancelled', metadata = {}) {
+    if (this.useTransactions) {
+      return this._expireUserSubscriptionCreditsWithTransaction(userId, reason, metadata);
+    } else {
+      return this._expireUserSubscriptionCreditsWithoutTransaction(userId, reason, metadata);
+    }
+  }
+
+  async _expireUserSubscriptionCreditsWithTransaction(userId, reason, metadata) {
+    const session = await mongoose.startSession();
+
+    try {
+      return await session.withTransaction(async () => {
+        return this._expireUserSubscriptionCreditsCore(userId, reason, metadata, session);
+      });
+    } catch (error) {
+      logger.error('Error expiring user subscription credits', {
+        userId,
+        reason,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async _expireUserSubscriptionCreditsWithoutTransaction(userId, reason, metadata) {
+    try {
+      return this._expireUserSubscriptionCreditsCore(userId, reason, metadata, null);
+    } catch (error) {
+      logger.error('Error expiring user subscription credits', {
+        userId,
+        reason,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  async _expireUserSubscriptionCreditsCore(userId, reason, metadata, session) {
+    logger.info('Expiring subscription credits for user', {
+      userId,
+      reason,
+      operation: 'expire_user_subscription_credits'
+    });
+
+    // Get wallet
+    const query = CreditWallet.findOne({ userId });
+    const wallet = session ? await query.session(session) : await query;
+
+    if (!wallet) {
+      logger.warn('Wallet not found for user, nothing to expire', { userId });
+      return {
+        success: true,
+        creditsExpired: 0,
+        message: 'No wallet found for user'
+      };
+    }
+
+    // Check if user has subscription credits
+    if (wallet.subscriptionCredits <= 0) {
+      logger.info('No subscription credits to expire', {
+        userId,
+        subscriptionCredits: wallet.subscriptionCredits
+      });
+      return {
+        success: true,
+        creditsExpired: 0,
+        message: 'No subscription credits to expire'
+      };
+    }
+
+    const expiredAmount = wallet.subscriptionCredits;
+    const originalExpiryDate = wallet.subscriptionCreditExpiry;
+
+    // Store balance before transaction
+    const balanceBefore = {
+      defaultCredits: wallet.defaultCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      reservedCredits: wallet.reservedCredits,
+      totalCredits: wallet.totalCredits
+    };
+
+    // Expire subscription credits
+    wallet.subscriptionCredits = 0;
+    wallet.subscriptionCreditExpiry = null;
+    await wallet.save(session ? { session } : {});
+
+    // Store balance after transaction
+    const balanceAfter = {
+      defaultCredits: wallet.defaultCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      reservedCredits: wallet.reservedCredits,
+      totalCredits: wallet.totalCredits
+    };
+
+    // Create transaction record
+    const transaction = new CreditTransaction({
+      userId,
+      type: 'expire',
+      amount: -expiredAmount,
+      creditType: 'subscription',
+      reference: {
+        type: 'expiry', 
+        id: metadata.subscriptionId || userId.toString(),
+        description: 'Subscription credits expired due to cancellation'
+      },
+      balanceBefore,
+      balanceAfter,
+      metadata: {
+        ...metadata,
+        expiredAt: new Date(),
+        reason,
+        originalExpiryDate
+      }
+    });
+
+    await transaction.save(session ? { session } : {});
+
+    logger.info('User subscription credits expired successfully', {
+      userId,
+      creditsExpired: expiredAmount,
+      reason,
+      newBalance: wallet.totalCredits,
+      operation: 'expire_user_subscription_credits'
+    });
+
+    return {
+      success: true,
+      creditsExpired: expiredAmount,
+      wallet: wallet.toObject(),
+      transaction: transaction.toObject(),
+      message: `${expiredAmount} subscription credits expired successfully`
+    };
+  }
+
+  /**
    * Get user credit balance and breakdown
    * @param {string|ObjectId} userId - User ID
    * @returns {Promise<Object>} Credit balance information

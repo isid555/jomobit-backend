@@ -6,14 +6,110 @@ Complete guide for integrating subscription management into your frontend applic
 
 ## Table of Contents
 
-1. [Authentication](#authentication)
-2. [Get Available Plans](#get-available-plans)
-3. [Create Subscription](#create-subscription)
-4. [Get Current Subscription](#get-current-subscription)
-5. [Upgrade/Downgrade Subscription](#upgradedowngrade-subscription)
-6. [Cancel Subscription](#cancel-subscription)
-7. [Error Handling](#error-handling)
-8. [Complete Flow Examples](#complete-flow-examples)
+1. [Setup](#setup)
+2. [Authentication](#authentication)
+3. [Get Available Plans](#get-available-plans)
+4. [Create Subscription](#create-subscription)
+5. [Verify Payment](#verify-payment-signature)
+6. [Get Current Subscription](#get-current-subscription)
+7. [Upgrade/Downgrade Subscription](#upgradedowngrade-subscription)
+8. [Cancel Subscription](#cancel-subscription)
+9. [Error Handling](#error-handling)
+10. [Complete Flow Examples](#complete-flow-examples)
+
+---
+
+## Setup
+
+### Prerequisites
+
+1. **Razorpay Account**: Sign up at [razorpay.com](https://razorpay.com)
+2. **API Keys**: Get your Key ID and Key Secret from Razorpay Dashboard
+3. **Webhook Setup**: Configure webhook URL in Razorpay Dashboard
+
+### Environment Variables
+
+Add these to your `.env` file:
+
+```bash
+# Frontend
+REACT_APP_RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxxx
+REACT_APP_API_BASE_URL=https://your-api.com
+
+# Backend (already configured)
+RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxxx
+RAZORPAY_KEY_SECRET=your_secret_key
+RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
+```
+
+### Add Razorpay SDK
+
+**Option 1: Via Script Tag (Recommended)**
+
+Add to your `public/index.html`:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Your App</title>
+    
+    <!-- Add Razorpay Checkout Script -->
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+```
+
+**Option 2: Dynamic Loading (React)**
+
+```javascript
+// hooks/useRazorpay.js
+import { useEffect, useState } from 'react';
+
+export const useRazorpay = () => {
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    // Check if already loaded
+    if (window.Razorpay) {
+      setLoaded(true);
+      return;
+    }
+
+    // Load script
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => setLoaded(true);
+    script.onerror = () => console.error('Failed to load Razorpay SDK');
+    
+    document.body.appendChild(script);
+
+    return () => {
+      if (script.parentNode) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
+
+  return { loaded, Razorpay: window.Razorpay };
+};
+
+// Usage in component
+const MyComponent = () => {
+  const { loaded } = useRazorpay();
+
+  if (!loaded) {
+    return <div>Loading payment gateway...</div>;
+  }
+
+  return <SubscribeButton />;
+};
+```
 
 ---
 
@@ -163,7 +259,25 @@ return (
 - User has NO active subscription
 - First-time subscription creation
 
-### Request
+### Payment Flow Options
+
+You have two options for payment:
+
+1. **Razorpay SDK Popup** (Recommended) - Better UX, stays on your site
+2. **Redirect to Payment Link** - Simple, redirects to Razorpay hosted page
+
+---
+
+## Option 1: Razorpay SDK Popup (Recommended)
+
+### Step 1: Add Razorpay Script to Your HTML
+
+```html
+<!-- Add this in your index.html or layout -->
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+```
+
+### Step 2: Create Subscription Request
 
 ```javascript
 const createSubscription = async (planId) => {
@@ -229,7 +343,293 @@ const createSubscription = async (planId) => {
 }
 ```
 
-### Frontend Implementation
+### Step 3: Open Razorpay Checkout Popup
+
+```javascript
+const openRazorpayCheckout = (subscriptionData, userInfo) => {
+  const options = {
+    key: process.env.REACT_APP_RAZORPAY_KEY_ID, // Your Razorpay Key ID
+    subscription_id: subscriptionData.razorpaySubscriptionId,
+    name: 'Your Company Name',
+    description: subscriptionData.plan.name,
+    image: '/your_logo.png', // Your company logo
+    
+    // Handler function - called on successful payment
+    handler: async function (response) {
+      // response contains:
+      // - razorpay_payment_id
+      // - razorpay_subscription_id
+      // - razorpay_signature
+      
+      try {
+        // Verify payment signature
+        const verifyResponse = await fetch('/api/subscriptions/verify', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_subscription_id: response.razorpay_subscription_id,
+            razorpay_signature: response.razorpay_signature
+          })
+        });
+
+        const verifyData = await verifyResponse.json();
+
+        if (verifyData.success && verifyData.verified) {
+          // Payment verified successfully
+          toast.success('Subscription activated successfully!');
+          
+          // Redirect to success page or dashboard
+          navigate('/subscription/success');
+          
+          // Refresh subscription data
+          await refreshSubscription();
+        } else {
+          // Verification failed
+          toast.error('Payment verification failed. Please contact support.');
+        }
+      } catch (error) {
+        console.error('Payment verification error:', error);
+        toast.error('Failed to verify payment. Please contact support.');
+      }
+    },
+    
+    // Prefill customer information
+    prefill: {
+      name: userInfo.name,
+      email: userInfo.email,
+      contact: userInfo.phone || ''
+    },
+    
+    // Additional notes
+    notes: {
+      userId: userInfo.id,
+      planId: subscriptionData.plan.planId
+    },
+    
+    // Theme customization
+    theme: {
+      color: '#3399cc' // Your brand color
+    },
+    
+    // Modal options
+    modal: {
+      ondismiss: function() {
+        // Called when user closes the popup
+        console.log('Payment popup closed');
+        toast.info('Payment cancelled');
+      }
+    }
+  };
+
+  const razorpay = new window.Razorpay(options);
+  
+  // Handle payment failure
+  razorpay.on('payment.failed', function (response) {
+    console.error('Payment failed:', response.error);
+    toast.error(`Payment failed: ${response.error.description}`);
+  });
+
+  // Open the checkout popup
+  razorpay.open();
+};
+```
+
+### Step 4: Complete Frontend Implementation
+
+```javascript
+const handleSubscribe = async (planId) => {
+  try {
+    setLoading(true);
+    
+    // Step 1: Create subscription
+    const response = await fetch('/api/subscriptions/create', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ planId })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      // Step 2: Open Razorpay checkout popup
+      openRazorpayCheckout(data.subscription, {
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        id: user.id
+      });
+    } else {
+      // Handle error
+      setError(data.message);
+    }
+  } catch (error) {
+    console.error('Subscription creation failed:', error);
+    setError('Failed to create subscription');
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+### Complete React Component Example
+
+```javascript
+import React, { useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
+import { toast } from 'react-toastify';
+
+const SubscribeButton = ({ plan }) => {
+  const { user, accessToken } = useAuth();
+  const [loading, setLoading] = useState(false);
+
+  // Load Razorpay script
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    document.body.appendChild(script);
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
+  const verifyPayment = async (paymentResponse) => {
+    try {
+      const response = await fetch('/api/subscriptions/verify', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          razorpay_payment_id: paymentResponse.razorpay_payment_id,
+          razorpay_subscription_id: paymentResponse.razorpay_subscription_id,
+          razorpay_signature: paymentResponse.razorpay_signature
+        })
+      });
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Verification error:', error);
+      throw error;
+    }
+  };
+
+  const openRazorpayCheckout = (subscriptionData) => {
+    const options = {
+      key: process.env.REACT_APP_RAZORPAY_KEY_ID,
+      subscription_id: subscriptionData.razorpaySubscriptionId,
+      name: 'Your Company',
+      description: subscriptionData.plan.name,
+      image: '/logo.png',
+      
+      handler: async function (response) {
+        try {
+          const verifyResult = await verifyPayment(response);
+          
+          if (verifyResult.success && verifyResult.verified) {
+            toast.success('🎉 Subscription activated successfully!');
+            window.location.href = '/dashboard';
+          } else {
+            toast.error('Payment verification failed. Please contact support.');
+          }
+        } catch (error) {
+          toast.error('Failed to verify payment. Please contact support.');
+        }
+      },
+      
+      prefill: {
+        name: user.name,
+        email: user.email,
+        contact: user.phone || ''
+      },
+      
+      notes: {
+        userId: user.id,
+        planId: plan.planId
+      },
+      
+      theme: {
+        color: '#3399cc'
+      },
+      
+      modal: {
+        ondismiss: function() {
+          toast.info('Payment cancelled');
+          setLoading(false);
+        }
+      }
+    };
+
+    const razorpay = new window.Razorpay(options);
+    
+    razorpay.on('payment.failed', function (response) {
+      toast.error(`Payment failed: ${response.error.description}`);
+      setLoading(false);
+    });
+
+    razorpay.open();
+  };
+
+  const handleSubscribe = async () => {
+    try {
+      setLoading(true);
+      
+      const response = await fetch('/api/subscriptions/create', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          planId: plan.planId,
+          customerNotify: true
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        openRazorpayCheckout(data.subscription);
+      } else {
+        toast.error(data.message);
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error('Subscription creation failed:', error);
+      toast.error('Failed to create subscription');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleSubscribe}
+      disabled={loading}
+      className="subscribe-button"
+    >
+      {loading ? 'Processing...' : `Subscribe to ${plan.name}`}
+    </button>
+  );
+};
+
+export default SubscribeButton;
+```
+
+---
+
+## Option 2: Redirect to Payment Link (Simple)
+
+If you prefer a simpler approach without the SDK:
 
 ```javascript
 const handleSubscribe = async (planId) => {
@@ -265,6 +665,72 @@ const handleSubscribe = async (planId) => {
   }
 };
 ```
+
+---
+
+## Verify Payment Signature
+
+**Endpoint:** `POST /api/subscriptions/verify`
+
+**Purpose:** Verify Razorpay payment signature after successful payment in checkout popup.
+
+**Authentication:** Required
+
+**Important:** This endpoint ONLY verifies the signature. Actual payment recording and credit granting happens via webhooks.
+
+### Request
+
+```javascript
+const verifyPayment = async (paymentResponse) => {
+  const response = await fetch('https://your-api.com/api/subscriptions/verify', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+      razorpay_subscription_id: paymentResponse.razorpay_subscription_id,
+      razorpay_signature: paymentResponse.razorpay_signature
+    })
+  });
+
+  const data = await response.json();
+  return data;
+};
+```
+
+### Response (200 OK - Verified)
+
+```json
+{
+  "success": true,
+  "verified": true,
+  "message": "Payment signature verified successfully",
+  "data": {
+    "razorpay_payment_id": "pay_1234567890abcdef",
+    "razorpay_subscription_id": "sub_1234567890abcdef"
+  }
+}
+```
+
+### Response (400 - Verification Failed)
+
+```json
+{
+  "success": false,
+  "verified": false,
+  "error": "SIGNATURE_VERIFICATION_FAILED",
+  "message": "Payment signature verification failed"
+}
+```
+
+### When to Use
+
+- Called in the `handler` function of Razorpay checkout
+- Used to verify payment authenticity before showing success message
+- Does NOT record payment (webhooks handle that)
+- Only for UI feedback to user
 
 ### Error Responses
 
@@ -1270,6 +1736,109 @@ await refreshSubscription();
 
 ---
 
+## Payment Flow Architecture
+
+### How It Works
+
+```
+┌─────────────┐
+│   Frontend  │
+└──────┬──────┘
+       │
+       │ 1. POST /create
+       ▼
+┌─────────────┐
+│   Backend   │──────────────┐
+└──────┬──────┘              │
+       │                     │ 2. Create subscription
+       │ 3. Return           │    in Razorpay
+       │    subscription_id  │
+       ▼                     ▼
+┌─────────────┐         ┌──────────┐
+│   Frontend  │         │ Razorpay │
+└──────┬──────┘         └────┬─────┘
+       │                     │
+       │ 4. Open popup       │
+       │    with sub_id      │
+       ├────────────────────►│
+       │                     │
+       │ 5. User pays        │
+       │◄────────────────────┤
+       │                     │
+       │ 6. Payment response │
+       │    (payment_id,     │
+       │     signature)      │
+       ▼                     │
+┌─────────────┐              │
+│   Frontend  │              │
+└──────┬──────┘              │
+       │                     │
+       │ 7. POST /verify     │
+       │    (signature)      │
+       ▼                     │
+┌─────────────┐              │
+│   Backend   │              │
+└──────┬──────┘              │
+       │                     │
+       │ 8. Verify signature │
+       │    Return success   │
+       ▼                     │
+┌─────────────┐              │
+│   Frontend  │              │
+│ Show success│              │
+└─────────────┘              │
+                             │
+                             │ 9. Webhook
+                             │    (async)
+                             ▼
+                        ┌──────────┐
+                        │ Backend  │
+                        │ - Record │
+                        │   payment│
+                        │ - Grant  │
+                        │   credits│
+                        └──────────┘
+```
+
+### Important Notes
+
+1. **Signature Verification** (`/verify` endpoint):
+   - Only verifies payment authenticity
+   - Used for immediate UI feedback
+   - Does NOT record payment or grant credits
+
+2. **Webhook Processing** (async):
+   - Razorpay sends webhook after payment
+   - Backend records payment in database
+   - Backend grants subscription credits
+   - This is the source of truth
+
+3. **Why Two Steps?**
+   - `/verify`: Fast UI feedback (user sees success immediately)
+   - Webhook: Reliable payment recording (handles retries, failures)
+
+### Error Scenarios
+
+**Scenario 1: Payment Successful, Verification Fails**
+- User paid successfully
+- Signature verification failed (network issue)
+- **Result**: Webhook will still process payment
+- **Action**: Show "Payment processing" message, check status later
+
+**Scenario 2: Payment Failed**
+- User's payment declined
+- `payment.failed` event triggered
+- **Result**: No webhook, no charges
+- **Action**: Show error message, allow retry
+
+**Scenario 3: User Closes Popup**
+- User closes payment popup without paying
+- `modal.ondismiss` triggered
+- **Result**: No payment, no charges
+- **Action**: Show "Payment cancelled" message
+
+---
+
 ## Summary
 
 ### Key Endpoints
@@ -1278,6 +1847,7 @@ await refreshSubscription();
 |----------|--------|---------|---------------|
 | `/api/subscriptions/plans` | GET | Get available plans | No |
 | `/api/subscriptions/create` | POST | Create new subscription | Yes |
+| `/api/subscriptions/verify` | POST | Verify payment signature | Yes |
 | `/api/subscriptions/current` | GET | Get current subscription | Yes |
 | `/api/subscriptions/upgrade` | POST | Upgrade/downgrade plan | Yes |
 | `/api/subscriptions/cancel` | POST | Cancel subscription | Yes |

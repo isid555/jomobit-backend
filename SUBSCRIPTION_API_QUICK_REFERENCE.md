@@ -47,6 +47,7 @@ Body: { planId, customerNotify?, notes? }
 {
   "success": true,
   "subscription": {
+    "razorpaySubscriptionId": "sub_ABC123",
     "short_url": "https://rzp.io/i/abc123",
     "status": "created"
   }
@@ -55,7 +56,29 @@ Body: { planId, customerNotify?, notes? }
 
 **Error (409):** User already has subscription → Use `/upgrade` instead
 
-**Next Step:** Redirect to `subscription.short_url` for payment
+**Next Step:** 
+- **Option A (Recommended):** Open Razorpay SDK popup with `subscription_id`
+- **Option B:** Redirect to `subscription.short_url`
+
+---
+
+### 2.1. Verify Payment (After Razorpay Popup)
+```
+POST /api/subscriptions/verify
+Auth: Required
+Body: { razorpay_payment_id, razorpay_subscription_id, razorpay_signature }
+```
+
+**Success (200):**
+```json
+{
+  "success": true,
+  "verified": true,
+  "message": "Payment signature verified successfully"
+}
+```
+
+**Note:** Only verifies signature for UI feedback. Webhooks handle actual payment recording.
 
 ---
 
@@ -138,7 +161,7 @@ const hasSubscription = async () => {
 };
 ```
 
-### Create Subscription Flow
+### Create Subscription Flow (Razorpay SDK)
 
 ```javascript
 // 1. Create subscription
@@ -150,9 +173,35 @@ const res = await fetch('/api/subscriptions/create', {
 
 const data = await res.json();
 
-// 2. Redirect to payment
+// 2. Open Razorpay checkout popup
 if (data.success) {
-  window.location.href = data.subscription.short_url;
+  const options = {
+    key: 'YOUR_RAZORPAY_KEY_ID',
+    subscription_id: data.subscription.razorpaySubscriptionId,
+    name: 'Your Company',
+    description: data.plan.name,
+    handler: async function(response) {
+      // 3. Verify payment
+      const verifyRes = await fetch('/api/subscriptions/verify', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razorpay_payment_id: response.razorpay_payment_id,
+          razorpay_subscription_id: response.razorpay_subscription_id,
+          razorpay_signature: response.razorpay_signature
+        })
+      });
+      
+      const verifyData = await verifyRes.json();
+      if (verifyData.verified) {
+        alert('Subscription activated!');
+      }
+    },
+    prefill: { name: user.name, email: user.email }
+  };
+  
+  const rzp = new Razorpay(options);
+  rzp.open();
 }
 ```
 
@@ -243,6 +292,16 @@ const states = {
 
 ## 🧪 Testing Checklist
 
+### Payment Flow
+- [ ] Razorpay SDK loads correctly
+- [ ] Checkout popup opens with correct details
+- [ ] Payment success triggers handler function
+- [ ] Signature verification succeeds
+- [ ] Success message displays
+- [ ] Payment failure shows error message
+- [ ] Closing popup shows cancellation message
+
+### Subscription Management
 - [ ] User with no subscription can create one
 - [ ] User with subscription cannot create another (409 error)
 - [ ] User can upgrade immediately
@@ -251,8 +310,13 @@ const states = {
 - [ ] User can cancel at period end
 - [ ] User can cancel immediately
 - [ ] Scheduled changes display correctly
-- [ ] Payment redirect works
 - [ ] Error messages display properly
+
+### Webhook Processing (Backend)
+- [ ] Webhook receives payment notification
+- [ ] Payment recorded in database
+- [ ] Credits granted to user
+- [ ] Subscription status updated
 
 ---
 

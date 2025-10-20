@@ -322,6 +322,16 @@ subscriptionSchema.index({ razorpaySubscriptionId: 1, status: 1 });
 subscriptionSchema.index({ currentPeriodEnd: 1, cancelAtPeriodEnd: 1 });
 subscriptionSchema.index({ razorpayCustomerId: 1 });
 subscriptionSchema.index({ 'scheduledChange.effectiveDate': 1 });
+// In Subscription schema
+subscriptionSchema.index(
+  { userId: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: ['created', 'authenticated', 'active', 'pending'] }
+    }
+  }
+);
 
 // Pre-save middleware
 subscriptionSchema.pre('save', function (next) {
@@ -382,6 +392,21 @@ subscriptionSchema.statics = {
     })
       .populate('planId')
       .exec();
+  },
+
+  /**
+   * Get user's created, authenticated, active, pending subscription to avoid creation of another subscription until one settled. 
+   * @param {ObjectId} userId - UserID
+   * @return {Promise<Subscription|null>} Active subscription or null
+   */
+
+  async getUserPendingOrActiveSubscription(userId){
+    return this.findOne({
+      userId, 
+      status: { $in: ['created', 'authenticated', 'active', 'pending']}
+    })
+    .populate('planId')
+    .exec();
   },
 
   /**

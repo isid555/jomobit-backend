@@ -190,6 +190,88 @@ router.post('/create', authenticate, subscriptionController.createSubscription);
 
 /**
  * @swagger
+ * /api/subscriptions/verify:
+ *   post:
+ *     summary: Verify subscription payment signature
+ *     description: Verify Razorpay payment signature after successful payment in checkout popup
+ *     tags: [Subscriptions]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - razorpay_payment_id
+ *               - razorpay_subscription_id
+ *               - razorpay_signature
+ *             properties:
+ *               razorpay_payment_id:
+ *                 type: string
+ *                 description: Payment ID from Razorpay
+ *                 example: 'pay_1234567890abcdef'
+ *               razorpay_subscription_id:
+ *                 type: string
+ *                 description: Subscription ID from Razorpay
+ *                 example: 'sub_1234567890abcdef'
+ *               razorpay_signature:
+ *                 type: string
+ *                 description: Signature from Razorpay for verification
+ *                 example: 'a1b2c3d4e5f6...'
+ *     responses:
+ *       200:
+ *         description: Payment signature verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 verified:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: 'Payment signature verified successfully'
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     razorpay_payment_id:
+ *                       type: string
+ *                     razorpay_subscription_id:
+ *                       type: string
+ *       400:
+ *         description: Validation error or signature verification failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 verified:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: 'SIGNATURE_VERIFICATION_FAILED'
+ *                 message:
+ *                   type: string
+ *                   example: 'Payment signature verification failed'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
+router.post('/verify', authenticate, subscriptionController.verifySubscriptionPayment);
+
+/**
+ * @swagger
  * /api/subscriptions/current:
  *   get:
  *     summary: Get current subscription
