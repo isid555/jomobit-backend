@@ -46,7 +46,7 @@ const planSchema = new mongoose.Schema({
     },
     interval: {
       type: String,
-      enum: ['monthly', 'yearly'],
+      enum: ['daily','weekly','monthly', 'yearly'], //added daily and weekly -feature/subscriptions
       required: true,
       default: 'monthly'
     },
@@ -61,7 +61,7 @@ const planSchema = new mongoose.Schema({
   features: {
     // Credit allocation
     credits: {
-      monthly: {
+      monthly: { // this monthly will be later discarded and period & amount will be used. for now while creating annually plan we will set monthly to zero. and instead do yearly and amount thier. but we have to keep backward integration. 
         type: Number,
         required: true,
         min: 0
@@ -69,6 +69,18 @@ const planSchema = new mongoose.Schema({
       rollover: {
         type: Boolean,
         default: false
+      },
+      //added period and amount while creating plans these will be filled and later will be used -feature/subscriptions
+      period: {
+        type: String,
+        required: true,
+        enum: ['daily','weekly','monthly', 'yearly'],
+        default: 'monthly',
+      }, 
+      amount: {
+        type: Number,
+        required: true,
+        min: 0
       }
     },
     
@@ -98,11 +110,11 @@ const planSchema = new mongoose.Schema({
     aiProviders: {
       llm: [{
         type: String,
-        enum: ['openai', 'gemini']
+        enum: ['openai', 'gemini', 'all'] //added all for allowing all parameters. -feature/subscriptions
       }],
       diffusion: [{
         type: String,
-        enum: ['openai', 'ideogram']
+        enum: ['openai', 'ideogram', 'all'] //added all for allowing all parameters. -feature/subscriptions
       }]
     },
     
@@ -333,6 +345,7 @@ planSchema.statics = {
    * @returns {Promise<Plan[]>} Created plans
    */
   async createDefaultPlans() {
+    
     const defaultPlans = [
       {
         name: 'Free',
