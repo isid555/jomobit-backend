@@ -1,70 +1,4 @@
-const AIProvider = require("./baseProvider");
-
-/**
- * LLM Provider Abstract Class
- * Specialized abstract class for Large Language Model providers
- */
-class LLMProvider extends AIProvider {
-  constructor(config = {}) {
-    super(config);
-    if (this.constructor === LLMProvider) {
-      throw new Error(
-        "LLMProvider is an abstract class and cannot be instantiated directly"
-      );
-    }
-  }
-
-  /**
-   * Generate a marketing prompt based on business profile and template
-   * @param {Object} businessProfile - Business profile containing name, tagline, products, etc.
-   * @param {Object} template - Template data with style and requirements
-   * @returns {Promise<string>} Generated marketing prompt
-   */
-  async generatePrompt(businessProfile, template) {
-    throw new Error(
-      "generatePrompt method must be implemented by LLM provider subclass"
-    );
-  }
-
-  /**
-   * Generate multiple prompt variations
-   * @param {Object} businessProfile - Business profile data
-   * @param {Object} template - Template data
-   * @param {number} count - Number of variations to generate
-   * @returns {Promise<string[]>} Array of generated prompts
-   */
-  async generatePromptVariations(businessProfile, template, count = 3) {
-    const prompts = [];
-    for (let i = 0; i < count; i++) {
-      const prompt = await this.generatePrompt(businessProfile, template);
-      prompts.push(prompt);
-    }
-    return prompts;
-  }
-
-  /**
-   * Get provider capabilities - LLM providers support prompt generation
-   * @returns {Object} Provider capabilities
-   */
-  getCapabilities() {
-    return {
-      ...super.getCapabilities(),
-      supportsPromptGeneration: true,
-      supportsPromptVariations: true,
-      maxPromptLength: 4000,
-      supportedLanguages: ["en"],
-    };
-  }
-
-  /**
-   * Build system prompt for marketing content generation
-   * @param {Object} businessProfile - Business profile data
-   * @param {Object} template - Template requirements
-   * @returns {string} System prompt
-   */
-  buildSystemPrompt(businessProfile, template) {
-    return `
-    You're senior AI engineer, Designer and Creative Writer with 30+ years of experience. You're expert in prompt engineering, diffusion models, marketing, designing and branding.
+You're senior AI engineer, Designer and Creative Writer with 30+ years of experience. You're expert in prompt engineering, diffusion models, marketing, designing and branding.
 Goal: Generate a high quality enriched brand campaign festive poster using diffusion models. Brand's essence must be integrated into the poster through the festival.
 Your task: Generate a single, comprehensive prompt for the diffusion model that follows the given guidelines.
 
@@ -126,10 +60,3 @@ Body copy (below headline): “This Navratri, celebrating the divine energy that
 Brand logo: Place the provided DesiWeaves logo at the bottom center, aligned and scaled proportionally with an 80px bottom margin.
 
 Preserve all original visual compositions and proportions; apply micro-adjustments up to 20px only if necessary to prevent text or logo collision with visual elements. The result should harmoniously blend elegant typography with the cinematic imagery, conveying a serene yet powerful festive tribute to craft.
-
-Use the provided poster template as base image for style and inspiration.
-  `;
-  }
-}
-
-module.exports = LLMProvider;

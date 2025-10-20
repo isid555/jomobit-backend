@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 /**
  * Plan Schema
@@ -114,7 +114,7 @@ const planSchema = new mongoose.Schema({
       }],
       diffusion: [{
         type: String,
-        enum: ['openai', 'ideogram', 'all'] //added all for allowing all parameters. -feature/subscriptions
+        enum: ['openai', 'ideogram', 'nano_banana', 'all'] //added all for allowing all parameters. -feature/subscriptions
       }]
     },
     
@@ -225,14 +225,15 @@ const planSchema = new mongoose.Schema({
       return ret;
     }
   }
-});
+}
+);
 
 // Compound indexes for performance
 planSchema.index({ status: 1, isPublic: 1, sortOrder: 1 });
 planSchema.index({ tier: 1, status: 1 });
 
 // Pre-save middleware
-planSchema.pre('save', function(next) {
+planSchema.pre("save", function (next) {
   if (this.isModified() && !this.isNew) {
     this.updatedAt = new Date();
   }
@@ -247,26 +248,22 @@ planSchema.statics = {
    * @returns {Promise<Plan[]>} Public plans
    */
   async getPublicPlans(options = {}) {
-    const {
-      includeFree = true,
-      sort = { sortOrder: 1, 'pricing.amount': 1 }
-    } = options;
+    const { includeFree = true, sort = { sortOrder: 1, "pricing.amount": 1 } } =
+      options;
 
     const query = {
-      status: 'active',
-      isPublic: true
+      status: "active",
+      isPublic: true,
     };
 
     if (!includeFree) {
-      query['pricing.amount'] = { $gt: 0 };
+      query["pricing.amount"] = { $gt: 0 };
     }
 
-    return this.find(query)
-      .sort(sort)
-      .exec();
+    return this.find(query).sort(sort).exec();
   },
 
-    /**
+  /**
    * Get all active public plans (alias for getPublicPlans)
    * @param {Object} options - Query options
    * @returns {Promise<Plan[]>} Active plans
@@ -274,7 +271,6 @@ planSchema.statics = {
   async getActivePlans(options = {}) {
     return this.getPublicPlans(options);
   },
-
 
   /**
    * Get plan by plan ID
@@ -284,7 +280,7 @@ planSchema.statics = {
   async getByPlanId(planId) {
     return this.findOne({
       planId: planId.toLowerCase(),
-      status: 'active'
+      status: "active",
     }).exec();
   },
 
@@ -304,13 +300,13 @@ planSchema.statics = {
    */
   async getFeaturedPlans(limit = 3) {
     return this.find({
-      status: 'active',
+      status: "active",
       isPublic: true,
-      isFeatured: true
+      isFeatured: true,
     })
-    .sort({ sortOrder: 1 })
-    .limit(limit)
-    .exec();
+      .sort({ sortOrder: 1 })
+      .limit(limit)
+      .exec();
   },
 
   /**
@@ -319,9 +315,9 @@ planSchema.statics = {
    */
   async getFreePlan() {
     return this.findOne({
-      tier: 'free',
-      status: 'active',
-      'pricing.amount': 0
+      tier: "free",
+      status: "active",
+      "pricing.amount": 0,
     }).exec();
   },
 
@@ -333,11 +329,11 @@ planSchema.statics = {
   async getPlansByTier(tier) {
     return this.find({
       tier,
-      status: 'active',
-      isPublic: true
+      status: "active",
+      isPublic: true,
     })
-    .sort({ sortOrder: 1 })
-    .exec();
+      .sort({ sortOrder: 1 })
+      .exec();
   },
 
   /**
@@ -348,119 +344,119 @@ planSchema.statics = {
     
     const defaultPlans = [
       {
-        name: 'Free',
-        planId: 'free',
-        description: 'Perfect for trying out Jomobit',
+        name: "Free",
+        planId: "free",
+        description: "Perfect for trying out Jomobit",
         pricing: {
           amount: 0,
-          currency: 'INR',
-          interval: 'monthly'
+          currency: "INR",
+          interval: "monthly",
         },
         features: {
           credits: {
             monthly: 3,
-            rollover: false
+            rollover: false,
           },
           businessProfiles: {
-            limit: 1
+            limit: 1,
           },
           templates: {
-            access: 'basic',
-            customTemplates: false
+            access: "basic",
+            customTemplates: false,
           },
           aiProviders: {
-            llm: ['openai'],
-            diffusion: ['openai']
+            llm: ["openai"],
+            diffusion: ["openai"],
           },
           additional: {
             prioritySupport: false,
             analytics: false,
             apiAccess: false,
             whiteLabel: false,
-            bulkGeneration: false
-          }
+            bulkGeneration: false,
+          },
         },
-        tier: 'free',
+        tier: "free",
         sortOrder: 1,
         isPublic: true,
-        isFeatured: false
+        isFeatured: false,
       },
       {
-        name: 'Plus',
-        planId: 'plus',
-        description: 'Great for small businesses and entrepreneurs',
+        name: "Plus",
+        planId: "plus",
+        description: "Great for small businesses and entrepreneurs",
         pricing: {
           amount: 2500, // ₹25.00
-          currency: 'INR',
-          interval: 'monthly'
+          currency: "INR",
+          interval: "monthly",
         },
         features: {
           credits: {
             monthly: 50,
-            rollover: false
+            rollover: false,
           },
           businessProfiles: {
-            limit: 3
+            limit: 3,
           },
           templates: {
-            access: 'premium',
-            customTemplates: false
+            access: "premium",
+            customTemplates: false,
           },
           aiProviders: {
-            llm: ['openai', 'gemini'],
-            diffusion: ['openai', 'ideogram']
+            llm: ["openai", "gemini"],
+            diffusion: ["openai", "ideogram", "nano_banana"],
           },
           additional: {
             prioritySupport: true,
             analytics: true,
             apiAccess: false,
             whiteLabel: false,
-            bulkGeneration: false
-          }
+            bulkGeneration: false,
+          },
         },
-        tier: 'basic',
+        tier: "basic",
         sortOrder: 2,
         isPublic: true,
-        isFeatured: true
+        isFeatured: true,
       },
       {
-        name: 'Pro',
-        planId: 'pro',
-        description: 'Perfect for growing businesses and agencies',
+        name: "Pro",
+        planId: "pro",
+        description: "Perfect for growing businesses and agencies",
         pricing: {
           amount: 5900, // ₹59.00
-          currency: 'INR',
-          interval: 'monthly'
+          currency: "INR",
+          interval: "monthly",
         },
         features: {
           credits: {
             monthly: 120,
-            rollover: true
+            rollover: true,
           },
           businessProfiles: {
-            limit: 8
+            limit: 8,
           },
           templates: {
-            access: 'all',
-            customTemplates: true
+            access: "all",
+            customTemplates: true,
           },
           aiProviders: {
-            llm: ['openai', 'gemini'],
-            diffusion: ['openai', 'ideogram']
+            llm: ["openai", "gemini"],
+            diffusion: ["openai", "ideogram", "nano_banana"],
           },
           additional: {
             prioritySupport: true,
             analytics: true,
             apiAccess: true,
             whiteLabel: true,
-            bulkGeneration: true
-          }
+            bulkGeneration: true,
+          },
         },
-        tier: 'premium',
+        tier: "premium",
         sortOrder: 3,
         isPublic: true,
-        isFeatured: true
-      }
+        isFeatured: true,
+      },
     ];
 
     const createdPlans = [];
@@ -481,8 +477,8 @@ planSchema.statics = {
    */
   async getPlanComparison() {
     const plans = await this.getPublicPlans();
-    
-    return plans.map(plan => ({
+
+    return plans.map((plan) => ({
       id: plan._id,
       name: plan.name,
       planId: plan.planId,
@@ -491,9 +487,9 @@ planSchema.statics = {
       features: plan.features,
       tier: plan.tier,
       isFeatured: plan.isFeatured,
-      trial: plan.trial
+      trial: plan.trial,
     }));
-  }
+  },
 };
 
 // Instance methods
@@ -504,14 +500,14 @@ planSchema.methods = {
    * @returns {boolean} True if plan has feature
    */
   hasFeature(featurePath) {
-    const keys = featurePath.split('.');
+    const keys = featurePath.split(".");
     let current = this.features;
-    
+
     for (const key of keys) {
       if (current[key] === undefined) return false;
       current = current[key];
     }
-    
+
     return Boolean(current);
   },
 
@@ -521,14 +517,14 @@ planSchema.methods = {
    * @returns {any} Feature value
    */
   getFeatureValue(featurePath) {
-    const keys = featurePath.split('.');
+    const keys = featurePath.split(".");
     let current = this.features;
-    
+
     for (const key of keys) {
       if (current[key] === undefined) return null;
       current = current[key];
     }
-    
+
     return current;
   },
 
@@ -548,7 +544,7 @@ planSchema.methods = {
    * @returns {number} Monthly price
    */
   getMonthlyPrice() {
-    if (this.pricing.interval === 'yearly') {
+    if (this.pricing.interval === "yearly") {
       return Math.round(this.pricing.amount / 12);
     }
     return this.pricing.amount;
@@ -559,7 +555,7 @@ planSchema.methods = {
    * @returns {number} Yearly price
    */
   getYearlyPrice() {
-    if (this.pricing.interval === 'monthly') {
+    if (this.pricing.interval === "monthly") {
       return this.pricing.amount * 12;
     }
     return this.pricing.amount;
@@ -573,15 +569,17 @@ planSchema.methods = {
    * @returns {number} Prorated amount
    */
   calculateProratedAmount(newPlan, changeDate = new Date(), periodEnd) {
-    const remainingDays = Math.ceil((periodEnd - changeDate) / (1000 * 60 * 60 * 24));
-    const totalDays = this.pricing.interval === 'monthly' ? 30 : 365;
-    
+    const remainingDays = Math.ceil(
+      (periodEnd - changeDate) / (1000 * 60 * 60 * 24)
+    );
+    const totalDays = this.pricing.interval === "monthly" ? 30 : 365;
+
     const currentPlanDailyRate = this.getMonthlyPrice() / 30;
     const newPlanDailyRate = newPlan.getMonthlyPrice() / 30;
-    
+
     const refundAmount = currentPlanDailyRate * remainingDays;
     const chargeAmount = newPlanDailyRate * remainingDays;
-    
+
     return Math.round(chargeAmount - refundAmount);
   },
 
@@ -590,7 +588,7 @@ planSchema.methods = {
    * @returns {Promise<Plan>} Updated plan
    */
   async activate() {
-    this.status = 'active';
+    this.status = "active";
     return this.save();
   },
 
@@ -599,7 +597,7 @@ planSchema.methods = {
    * @returns {Promise<Plan>} Updated plan
    */
   async deactivate() {
-    this.status = 'inactive';
+    this.status = "inactive";
     return this.save();
   },
 
@@ -608,7 +606,7 @@ planSchema.methods = {
    * @returns {Promise<Plan>} Updated plan
    */
   async deprecate() {
-    this.status = 'deprecated';
+    this.status = "deprecated";
     this.isPublic = false;
     return this.save();
   },
@@ -638,11 +636,11 @@ planSchema.methods = {
       isFeatured: this.isFeatured,
       trial: this.trial,
       monthlyPrice: this.getMonthlyPrice(),
-      yearlyPrice: this.getYearlyPrice()
+      yearlyPrice: this.getYearlyPrice(),
     };
-  }
+  },
 };
 
-const Plan = mongoose.model('Plan', planSchema);
+const Plan = mongoose.model("Plan", planSchema);
 
 module.exports = Plan;

@@ -1,6 +1,7 @@
 const { OpenAILLMProvider, OpenAIDiffusionProvider } = require('./openaiProvider');
 const { GeminiLLMProvider } = require('./geminiProvider');
 const { IdeogramDiffusionProvider } = require('./ideogramProvider');
+const { FalAIDiffusionProvider } = require("./falaiProvider");
 
 /**
  * AI Provider Factory
@@ -27,6 +28,7 @@ class AIProviderFactory {
     // Register Diffusion providers
     this.registerDiffusionProvider('openai', OpenAIDiffusionProvider);
     this.registerDiffusionProvider('ideogram', IdeogramDiffusionProvider);
+    this.registerDiffusionProvider("nano_banana", FalAIDiffusionProvider);
   }
 
   /**
@@ -215,7 +217,7 @@ class AIProviderFactory {
           apiKey: process.env.OPENAI_API_KEY
         },
         gemini: {
-          enabled: true,
+          enabled: false,
           model: 'gemini-1.5-flash',
           apiKey: process.env.GEMINI_API_KEY
         }
@@ -229,6 +231,10 @@ class AIProviderFactory {
         ideogram: {
           enabled: true,
           apiKey: process.env.IDEOGRAM_API_KEY
+        },
+        nano_banana: {
+          enabled: true,
+          apiKey: process.env.FAL_KEY
         }
       }
     };
