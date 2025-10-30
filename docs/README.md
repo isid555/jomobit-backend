@@ -23,6 +23,9 @@ This documentation is organized into chapters for easy navigation and understand
 - **[Error Codes](./reference/error-codes.md)** - Error handling and status codes
 - **[Environment Variables](./reference/environment-variables.md)** - Configuration reference
 - **[Database Schema](./reference/database-schema.md)** - Complete schema documentation
+- **[Database Indexes](./database-indexes.md)** - Index documentation and setup guide
+- **[Database Indexes Reference](./database-indexes-reference.md)** - Quick reference for indexes
+- **[Subscription Jobs](./subscription-jobs.md)** - Scheduled jobs for subscription management
 
 ## 🎯 What is Jomobit?
 

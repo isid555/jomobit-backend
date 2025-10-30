@@ -904,6 +904,24 @@
           }
         },
         {
+          "name": "Create Available Plans",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "plans"]
+            },
+            "description": "Create default subscription plans"
+          }
+        },
+        {
           "name": "Get Plan by ID",
           "request": {
             "method": "GET",

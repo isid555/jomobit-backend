@@ -54,7 +54,7 @@ class CreditService {
 
   async _grantDefaultCreditsWithTransaction(userId, amount, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._grantDefaultCreditsCore(userId, amount, metadata, session);
@@ -92,7 +92,7 @@ class CreditService {
     // Get or create wallet
     const query = CreditWallet.findOne({ userId });
     let wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       wallet = new CreditWallet({
         userId,
@@ -140,7 +140,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction({
+    const transaction = new CreditTransaction({
       userId,
       type: 'grant',
       amount,
@@ -176,33 +176,36 @@ class CreditService {
   }
 
   /**
-   * Grant subscription credits with expiry date
+   * Grant subscription credits with expiry date and payment deduplication
+   * This is the atomic operation that expires old credits and grants new ones
    * @param {string|ObjectId} userId - User ID
    * @param {number} amount - Credit amount to grant
    * @param {Date} expiryDate - Credit expiry date
    * @param {string} subscriptionId - Subscription reference ID
+   * @param {string} paymentId - Payment ID for deduplication (optional)
    * @param {Object} metadata - Additional metadata
    * @returns {Promise<Object>} Operation result
    */
-  async grantSubscriptionCredits(userId, amount, expiryDate, subscriptionId, metadata = {}) {
+  async grantSubscriptionCredits(userId, amount, expiryDate, subscriptionId, paymentId = null, metadata = {}) {
     if (this.useTransactions) {
-      return this._grantSubscriptionCreditsWithTransaction(userId, amount, expiryDate, subscriptionId, metadata);
+      return this._grantSubscriptionCreditsWithTransaction(userId, amount, expiryDate, subscriptionId, paymentId, metadata);
     } else {
-      return this._grantSubscriptionCreditsWithoutTransaction(userId, amount, expiryDate, subscriptionId, metadata);
+      return this._grantSubscriptionCreditsWithoutTransaction(userId, amount, expiryDate, subscriptionId, paymentId, metadata);
     }
   }
 
-  async _grantSubscriptionCreditsWithTransaction(userId, amount, expiryDate, subscriptionId, metadata) {
+  async _grantSubscriptionCreditsWithTransaction(userId, amount, expiryDate, subscriptionId, paymentId, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
-        return this._grantSubscriptionCreditsCore(userId, amount, expiryDate, subscriptionId, metadata, session);
+        return this._grantSubscriptionCreditsCore(userId, amount, expiryDate, subscriptionId, paymentId, metadata, session);
       });
     } catch (error) {
       logger.error('Error granting subscription credits', {
         userId,
         amount,
+        paymentId,
         error: error.message,
         stack: error.stack
       });
@@ -212,13 +215,14 @@ class CreditService {
     }
   }
 
-  async _grantSubscriptionCreditsWithoutTransaction(userId, amount, expiryDate, subscriptionId, metadata) {
+  async _grantSubscriptionCreditsWithoutTransaction(userId, amount, expiryDate, subscriptionId, paymentId, metadata) {
     try {
-      return this._grantSubscriptionCreditsCore(userId, amount, expiryDate, subscriptionId, metadata, null);
+      return this._grantSubscriptionCreditsCore(userId, amount, expiryDate, subscriptionId, paymentId, metadata, null);
     } catch (error) {
       logger.error('Error granting subscription credits', {
         userId,
         amount,
+        paymentId,
         error: error.message,
         stack: error.stack
       });
@@ -226,13 +230,50 @@ class CreditService {
     }
   }
 
-  async _grantSubscriptionCreditsCore(userId, amount, expiryDate, subscriptionId, metadata, session) {
-    logger.info('Granting subscription credits', { userId, amount, expiryDate });
+  async _grantSubscriptionCreditsCore(userId, amount, expiryDate, subscriptionId, paymentId, metadata, session) {
+    logger.info('Credit operation: granting subscription credits', {
+      userId,
+      amount,
+      expiryDate,
+      subscriptionId,
+      paymentId,
+      source: metadata.source || 'subscription',
+      operation: 'grant_subscription_credits'
+    });
+
+    // Payment deduplication check - if paymentId provided, check if already processed
+    if (paymentId) {
+      const Payment = require('../models/Payment');
+      const paymentQuery = Payment.findOne({ razorpayPaymentId: paymentId });
+      const payment = session ? await paymentQuery.session(session) : await paymentQuery;
+
+      if (payment && payment.processed) {
+        logger.info('Credit deduplication: payment already processed, skipping credit grant', {
+          userId,
+          paymentId,
+          subscriptionId,
+          creditsGranted: payment.creditsGranted,
+          originalProcessedAt: payment.processedAt,
+          deduplicationDetected: true,
+          operation: 'grant_subscription_credits'
+        });
+
+        // Return success without processing
+        const wallet = await CreditWallet.findOne({ userId });
+        return {
+          success: true,
+          alreadyProcessed: true,
+          wallet: wallet ? wallet.toObject() : null,
+          transaction: null,
+          message: 'Payment already processed, credits previously granted'
+        };
+      }
+    }
 
     // Get or create wallet
     const query = CreditWallet.findOne({ userId });
     let wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       wallet = new CreditWallet({
         userId,
@@ -242,7 +283,7 @@ class CreditService {
       });
     }
 
-    // Store balance before transaction
+    // Store balance before transaction (before expiring old credits)
     const balanceBefore = {
       defaultCredits: wallet.defaultCredits,
       subscriptionCredits: wallet.subscriptionCredits,
@@ -250,12 +291,73 @@ class CreditService {
       totalCredits: wallet.totalCredits
     };
 
-    // Add subscription credits with expiry
-    wallet.subscriptionCredits += amount;
+    const oldSubscriptionCredits = wallet.subscriptionCredits;
+
+    // ATOMIC OPERATION: Expire old subscription credits first
+    if (wallet.subscriptionCredits > 0) {
+      logger.info('Credit operation: expiring old subscription credits before granting new ones', {
+        userId,
+        oldCredits: wallet.subscriptionCredits,
+        oldExpiry: wallet.subscriptionCreditExpiry,
+        subscriptionId,
+        reason: 'subscription_renewal',
+        operation: 'expire_before_grant'
+      });
+
+      // Create expire transaction for old credits
+      const expireTransaction = new CreditTransaction({
+        userId,
+        type: 'expire',
+        amount: -wallet.subscriptionCredits,
+        creditType: 'subscription',
+        reference: {
+          type: 'subscription',
+          id: subscriptionId,
+          description: 'Subscription credits expired before renewal'
+        },
+        balanceBefore: { ...balanceBefore },
+        balanceAfter: {
+          defaultCredits: wallet.defaultCredits,
+          subscriptionCredits: 0,
+          reservedCredits: wallet.reservedCredits,
+          totalCredits: wallet.defaultCredits
+        },
+        metadata: {
+          expiredAt: new Date(),
+          originalExpiryDate: wallet.subscriptionCreditExpiry,
+          reason: 'subscription_renewal',
+          paymentId
+        }
+      });
+
+      await expireTransaction.save(session ? { session } : {});
+
+      logger.info('Credit operation: old subscription credits expired', {
+        userId,
+        creditsExpired: oldSubscriptionCredits,
+        subscriptionId,
+        operation: 'expire_before_grant'
+      });
+
+      // Expire the credits
+      wallet.subscriptionCredits = 0;
+      wallet.subscriptionCreditExpiry = null;
+    }
+
+    // Store balance after expiry, before grant
+    const balanceAfterExpiry = {
+      defaultCredits: wallet.defaultCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      reservedCredits: wallet.reservedCredits,
+      totalCredits: wallet.totalCredits
+    };
+
+    // Add new subscription credits with expiry
+    wallet.subscriptionCredits = amount;
     wallet.subscriptionCreditExpiry = expiryDate;
     await wallet.save(session ? { session } : {});
 
-    // Store balance after transaction
+    // Store balance after grant
     const balanceAfter = {
       defaultCredits: wallet.defaultCredits,
       subscriptionCredits: wallet.subscriptionCredits,
@@ -263,8 +365,8 @@ class CreditService {
       totalCredits: wallet.totalCredits
     };
 
-    // Create transaction record
-    const transaction = await CreditTransaction.createTransaction({
+    // Create grant transaction record
+    const grantTransaction = new CreditTransaction({
       userId,
       type: 'grant',
       amount,
@@ -274,29 +376,57 @@ class CreditService {
         id: subscriptionId,
         description: 'Monthly subscription credits'
       },
-      balanceBefore,
+      balanceBefore: balanceAfterExpiry,
       balanceAfter,
       metadata: {
         ...metadata,
         expiryDate,
         grantedAt: new Date(),
-        source: 'subscription'
+        source: 'subscription',
+        paymentId,
+        oldCreditsExpired: oldSubscriptionCredits
       }
     });
 
-    await transaction.save(session ? { session } : {});
+    await grantTransaction.save(session ? { session } : {});
 
-    logger.info('Subscription credits granted successfully', {
+    // Update payment record if paymentId provided
+    if (paymentId) {
+      const Payment = require('../models/Payment');
+      const paymentQuery = Payment.findOne({ razorpayPaymentId: paymentId });
+      const payment = session ? await paymentQuery.session(session) : await paymentQuery;
+
+      if (payment) {
+        payment.creditsGranted = amount;
+        payment.processed = true;
+        payment.processedAt = new Date();
+        await payment.save(session ? { session } : {});
+
+        logger.info('Payment marked as processed', {
+          paymentId,
+          creditsGranted: amount,
+          processedAt: payment.processedAt
+        });
+      }
+    }
+
+    logger.info('Credit operation: subscription credits granted successfully', {
       userId,
       amount,
       expiryDate,
-      newBalance: wallet.totalCredits
+      subscriptionId,
+      oldCreditsExpired: oldSubscriptionCredits,
+      newBalance: wallet.totalCredits,
+      paymentId,
+      source: metadata.source || 'subscription',
+      operation: 'grant_subscription_credits'
     });
 
     return {
       success: true,
       wallet: wallet.toObject(),
-      transaction: transaction.toObject(),
+      transaction: grantTransaction.toObject(),
+      oldCreditsExpired: oldSubscriptionCredits,
       message: `${amount} subscription credits granted successfully`
     };
   }
@@ -319,7 +449,7 @@ class CreditService {
 
   async _reserveCreditsWithTransaction(userId, amount, jobId, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._reserveCreditsCore(userId, amount, jobId, metadata, session);
@@ -359,7 +489,7 @@ class CreditService {
     // Get wallet
     const query = CreditWallet.findOne({ userId });
     const wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       throw new CreditOperationError(
         'Credit wallet not found for user',
@@ -412,7 +542,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction({
+    const transaction = new CreditTransaction({
       userId,
       type: 'reserve',
       amount,
@@ -468,7 +598,7 @@ class CreditService {
 
   async _deductReservedCreditsWithTransaction(jobId, userId, amount, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._deductReservedCreditsCore(jobId, userId, amount, metadata, session);
@@ -508,7 +638,7 @@ class CreditService {
     // Get wallet
     const query = CreditWallet.findOne({ userId });
     const wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       throw new CreditOperationError(
         'Credit wallet not found for user',
@@ -570,20 +700,20 @@ class CreditService {
 
     // Deduct credits (subscription first, then default)
     let remainingToDeduct = amount;
-    
+
     // First, deduct from subscription credits
     const fromSubscription = Math.min(remainingToDeduct, wallet.subscriptionCredits);
     wallet.subscriptionCredits -= fromSubscription;
     remainingToDeduct -= fromSubscription;
-    
+
     // Then, deduct from default credits if needed
     if (remainingToDeduct > 0) {
       wallet.defaultCredits -= remainingToDeduct;
     }
-    
+
     // Release reserved credits
     wallet.reservedCredits -= amount;
-    
+
     await wallet.save(session ? { session } : {});
 
     // Store balance after transaction
@@ -595,12 +725,12 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction({
+    const transaction = new CreditTransaction({
       userId,
       type: 'deduct',
       amount: -amount, // Negative for deduction
-      creditType: fromSubscription > 0 && remainingToDeduct === 0 ? 'subscription' : 
-                 fromSubscription === 0 ? 'default' : 'mixed',
+      creditType: fromSubscription > 0 && remainingToDeduct === 0 ? 'subscription' :
+        fromSubscription === 0 ? 'default' : 'mixed',
       reference: {
         type: 'generation',
         id: jobId,
@@ -661,7 +791,7 @@ class CreditService {
 
   async _releaseReservedCreditsWithTransaction(jobId, userId, amount, metadata) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._releaseReservedCreditsCore(jobId, userId, amount, metadata, session);
@@ -701,7 +831,7 @@ class CreditService {
     // Get wallet
     const query = CreditWallet.findOne({ userId });
     const wallet = session ? await query.session(session) : await query;
-    
+
     if (!wallet) {
       throw new CreditOperationError(
         'Credit wallet not found for user',
@@ -718,7 +848,7 @@ class CreditService {
       'reference.id': jobId
     });
     const reservationTransaction = session ? await reservationQuery.session(session) : await reservationQuery;
-    logger.info("Now here is the bug: ")
+    logger.info('Verifying credit reservation exists', { jobId, userId });
 
     if (!reservationTransaction) {
       throw new CreditOperationError(
@@ -728,7 +858,7 @@ class CreditService {
       );
     }
 
-    logger.info("THis line wont be executed!");
+    logger.info('Credit reservation verified successfully', { jobId, userId });
 
     // Check if credits were already released or deducted
     const existingReleaseQuery = CreditTransaction.findOne({
@@ -785,7 +915,7 @@ class CreditService {
     };
 
     // Create transaction record
-    const transaction = await CreditTransaction({
+    const transaction = new CreditTransaction({
       userId,
       type: 'release',
       amount,
@@ -823,6 +953,243 @@ class CreditService {
   }
 
   /**
+   * Atomic operation: Expire old subscription credits and grant new ones with payment deduplication
+   * This is the main method used by webhook handlers for subscription renewals
+   * @param {string|ObjectId} userId - User ID
+   * @param {string} subscriptionId - Subscription ID
+   * @param {string} paymentId - Razorpay payment ID for deduplication
+   * @param {number} amount - Credit amount to grant
+   * @param {Date} expiryDate - Credit expiry date
+   * @param {Object} metadata - Additional metadata
+   * @returns {Promise<Object>} Operation result
+   */
+  async grantSubscriptionCreditsWithPayment(userId, subscriptionId, paymentId, amount, expiryDate, metadata = {}) {
+    if (this.useTransactions) {
+      return this._grantSubscriptionCreditsWithPaymentTransaction(userId, subscriptionId, paymentId, amount, expiryDate, metadata);
+    } else {
+      return this._grantSubscriptionCreditsWithPaymentNoTransaction(userId, subscriptionId, paymentId, amount, expiryDate, metadata);
+    }
+  }
+
+  async _grantSubscriptionCreditsWithPaymentTransaction(userId, subscriptionId, paymentId, amount, expiryDate, metadata) {
+    const session = await mongoose.startSession();
+
+    try {
+      return await session.withTransaction(async () => {
+        return this._grantSubscriptionCreditsWithPaymentCore(userId, subscriptionId, paymentId, amount, expiryDate, metadata, session);
+      });
+    } catch (error) {
+      logger.error('Error granting subscription credits with payment', {
+        userId,
+        subscriptionId,
+        paymentId,
+        amount,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async _grantSubscriptionCreditsWithPaymentNoTransaction(userId, subscriptionId, paymentId, amount, expiryDate, metadata) {
+    try {
+      return this._grantSubscriptionCreditsWithPaymentCore(userId, subscriptionId, paymentId, amount, expiryDate, metadata, null);
+    } catch (error) {
+      logger.error('Error granting subscription credits with payment', {
+        userId,
+        subscriptionId,
+        paymentId,
+        amount,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  async _grantSubscriptionCreditsWithPaymentCore(userId, subscriptionId, paymentId, amount, expiryDate, metadata, session) {
+    const Payment = require('../models/Payment');
+
+    logger.info('Starting atomic credit operation with payment deduplication', {
+      userId,
+      subscriptionId,
+      paymentId,
+      amount,
+      expiryDate
+    });
+
+    // Step 1: Check payment deduplication
+    const paymentQuery = Payment.findOne({ razorpayPaymentId: paymentId });
+    const payment = session ? await paymentQuery.session(session) : await paymentQuery;
+
+    if (!payment) {
+      throw new CreditOperationError(
+        'Payment record not found',
+        'grantSubscriptionCreditsWithPayment',
+        userId
+      );
+    }
+
+    if (payment.processed) {
+      logger.info('Payment already processed, skipping credit operations', {
+        userId,
+        paymentId,
+        creditsGranted: payment.creditsGranted,
+        processedAt: payment.processedAt
+      });
+
+      const wallet = await CreditWallet.findOne({ userId });
+      return {
+        success: true,
+        alreadyProcessed: true,
+        wallet: wallet ? wallet.toObject() : null,
+        payment: payment.toObject(),
+        message: 'Payment already processed, credits previously granted'
+      };
+    }
+
+    // Step 2: Get or create wallet
+    const walletQuery = CreditWallet.findOne({ userId });
+    let wallet = session ? await walletQuery.session(session) : await walletQuery;
+
+    if (!wallet) {
+      wallet = new CreditWallet({
+        userId,
+        defaultCredits: 0,
+        subscriptionCredits: 0,
+        reservedCredits: 0
+      });
+    }
+
+    // Store initial balance
+    const initialBalance = {
+      defaultCredits: wallet.defaultCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      reservedCredits: wallet.reservedCredits,
+      totalCredits: wallet.totalCredits
+    };
+
+    const oldSubscriptionCredits = wallet.subscriptionCredits;
+    const oldExpiry = wallet.subscriptionCreditExpiry;
+
+    // Step 3: ATOMIC - Expire old subscription credits
+    if (wallet.subscriptionCredits > 0) {
+      logger.info('Expiring old subscription credits', {
+        userId,
+        oldCredits: wallet.subscriptionCredits,
+        oldExpiry: wallet.subscriptionCreditExpiry
+      });
+
+      // Create expire transaction
+      const expireTransaction = await CreditTransaction.createTransaction({
+        userId,
+        type: 'expire',
+        amount: -wallet.subscriptionCredits,
+        creditType: 'subscription',
+        reference: {
+          type: 'subscription',
+          id: subscriptionId,
+          description: 'Subscription credits expired before renewal'
+        },
+        balanceBefore: { ...initialBalance },
+        balanceAfter: {
+          defaultCredits: wallet.defaultCredits,
+          subscriptionCredits: 0,
+          reservedCredits: wallet.reservedCredits,
+          totalCredits: wallet.defaultCredits
+        },
+        metadata: {
+          expiredAt: new Date(),
+          originalExpiryDate: oldExpiry,
+          reason: 'subscription_renewal',
+          paymentId,
+          subscriptionId
+        }
+      });
+
+      await expireTransaction.save(session ? { session } : {});
+
+      // Expire the credits
+      wallet.subscriptionCredits = 0;
+      wallet.subscriptionCreditExpiry = null;
+    }
+
+    // Balance after expiry
+    const balanceAfterExpiry = {
+      defaultCredits: wallet.defaultCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      reservedCredits: wallet.reservedCredits,
+      totalCredits: wallet.totalCredits
+    };
+
+    // Step 4: ATOMIC - Grant new subscription credits
+    wallet.subscriptionCredits = amount;
+    wallet.subscriptionCreditExpiry = expiryDate;
+    await wallet.save(session ? { session } : {});
+
+    // Final balance
+    const finalBalance = {
+      defaultCredits: wallet.defaultCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      reservedCredits: wallet.reservedCredits,
+      totalCredits: wallet.totalCredits
+    };
+
+    // Create grant transaction
+    const grantTransaction = await CreditTransaction.createTransaction({
+      userId,
+      type: 'grant',
+      amount,
+      creditType: 'subscription',
+      reference: {
+        type: 'subscription',
+        id: subscriptionId,
+        description: 'Subscription credits granted'
+      },
+      balanceBefore: balanceAfterExpiry,
+      balanceAfter: finalBalance,
+      metadata: {
+        ...metadata,
+        expiryDate,
+        grantedAt: new Date(),
+        source: 'subscription',
+        paymentId,
+        subscriptionId,
+        oldCreditsExpired: oldSubscriptionCredits
+      }
+    });
+
+    await grantTransaction.save(session ? { session } : {});
+
+    // Step 5: Update payment record
+    payment.creditsGranted = amount;
+    payment.processed = true;
+    payment.processedAt = new Date();
+    await payment.save(session ? { session } : {});
+
+    logger.info('Atomic credit operation completed successfully', {
+      userId,
+      subscriptionId,
+      paymentId,
+      oldCreditsExpired: oldSubscriptionCredits,
+      newCreditsGranted: amount,
+      newBalance: wallet.totalCredits
+    });
+
+    return {
+      success: true,
+      wallet: wallet.toObject(),
+      payment: payment.toObject(),
+      grantTransaction: grantTransaction.toObject(),
+      oldCreditsExpired: oldSubscriptionCredits,
+      newCreditsGranted: amount,
+      message: `Atomic operation completed: expired ${oldSubscriptionCredits} credits, granted ${amount} new credits`
+    };
+  }
+
+  /**
    * Expire subscription credits (monthly cleanup)
    * @param {Date} expiryDate - Expiry date to check against (default: current date)
    * @returns {Promise<Object>} Operation result with expired wallets count
@@ -837,7 +1204,7 @@ class CreditService {
 
   async _expireSubscriptionCreditsWithTransaction(expiryDate) {
     const session = await mongoose.startSession();
-    
+
     try {
       return await session.withTransaction(async () => {
         return this._expireSubscriptionCreditsCore(expiryDate, session);
@@ -882,7 +1249,7 @@ class CreditService {
 
     for (const wallet of expiredWallets) {
       const expiredAmount = wallet.subscriptionCredits;
-      
+
       if (expiredAmount > 0) {
         // Store balance before transaction
         const balanceBefore = {
@@ -953,6 +1320,152 @@ class CreditService {
   }
 
   /**
+   * Expire subscription credits for a specific user (used for cancellations)
+   * @param {string|ObjectId} userId - User ID
+   * @param {string} reason - Reason for expiration (e.g., 'subscription_cancelled')
+   * @param {Object} metadata - Additional metadata
+   * @returns {Promise<Object>} Operation result
+   */
+  async expireUserSubscriptionCredits(userId, reason = 'subscription_cancelled', metadata = {}) {
+    if (this.useTransactions) {
+      return this._expireUserSubscriptionCreditsWithTransaction(userId, reason, metadata);
+    } else {
+      return this._expireUserSubscriptionCreditsWithoutTransaction(userId, reason, metadata);
+    }
+  }
+
+  async _expireUserSubscriptionCreditsWithTransaction(userId, reason, metadata) {
+    const session = await mongoose.startSession();
+
+    try {
+      return await session.withTransaction(async () => {
+        return this._expireUserSubscriptionCreditsCore(userId, reason, metadata, session);
+      });
+    } catch (error) {
+      logger.error('Error expiring user subscription credits', {
+        userId,
+        reason,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async _expireUserSubscriptionCreditsWithoutTransaction(userId, reason, metadata) {
+    try {
+      return this._expireUserSubscriptionCreditsCore(userId, reason, metadata, null);
+    } catch (error) {
+      logger.error('Error expiring user subscription credits', {
+        userId,
+        reason,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  async _expireUserSubscriptionCreditsCore(userId, reason, metadata, session) {
+    logger.info('Expiring subscription credits for user', {
+      userId,
+      reason,
+      operation: 'expire_user_subscription_credits'
+    });
+
+    // Get wallet
+    const query = CreditWallet.findOne({ userId });
+    const wallet = session ? await query.session(session) : await query;
+
+    if (!wallet) {
+      logger.warn('Wallet not found for user, nothing to expire', { userId });
+      return {
+        success: true,
+        creditsExpired: 0,
+        message: 'No wallet found for user'
+      };
+    }
+
+    // Check if user has subscription credits
+    if (wallet.subscriptionCredits <= 0) {
+      logger.info('No subscription credits to expire', {
+        userId,
+        subscriptionCredits: wallet.subscriptionCredits
+      });
+      return {
+        success: true,
+        creditsExpired: 0,
+        message: 'No subscription credits to expire'
+      };
+    }
+
+    const expiredAmount = wallet.subscriptionCredits;
+    const originalExpiryDate = wallet.subscriptionCreditExpiry;
+
+    // Store balance before transaction
+    const balanceBefore = {
+      defaultCredits: wallet.defaultCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      reservedCredits: wallet.reservedCredits,
+      totalCredits: wallet.totalCredits
+    };
+
+    // Expire subscription credits
+    wallet.subscriptionCredits = 0;
+    wallet.subscriptionCreditExpiry = null;
+    await wallet.save(session ? { session } : {});
+
+    // Store balance after transaction
+    const balanceAfter = {
+      defaultCredits: wallet.defaultCredits,
+      subscriptionCredits: wallet.subscriptionCredits,
+      reservedCredits: wallet.reservedCredits,
+      totalCredits: wallet.totalCredits
+    };
+
+    // Create transaction record
+    const transaction = new CreditTransaction({
+      userId,
+      type: 'expire',
+      amount: -expiredAmount,
+      creditType: 'subscription',
+      reference: {
+        type: 'expiry', 
+        id: metadata.subscriptionId || userId.toString(),
+        description: 'Subscription credits expired due to cancellation'
+      },
+      balanceBefore,
+      balanceAfter,
+      metadata: {
+        ...metadata,
+        expiredAt: new Date(),
+        reason,
+        originalExpiryDate
+      }
+    });
+
+    await transaction.save(session ? { session } : {});
+
+    logger.info('User subscription credits expired successfully', {
+      userId,
+      creditsExpired: expiredAmount,
+      reason,
+      newBalance: wallet.totalCredits,
+      operation: 'expire_user_subscription_credits'
+    });
+
+    return {
+      success: true,
+      creditsExpired: expiredAmount,
+      wallet: wallet.toObject(),
+      transaction: transaction.toObject(),
+      message: `${expiredAmount} subscription credits expired successfully`
+    };
+  }
+
+  /**
    * Get user credit balance and breakdown
    * @param {string|ObjectId} userId - User ID
    * @returns {Promise<Object>} Credit balance information
@@ -960,7 +1473,7 @@ class CreditService {
   async getCreditBalance(userId) {
     try {
       const wallet = await CreditWallet.findByUserId(userId);
-      
+
       if (!wallet) {
         return {
           userId,
@@ -1025,7 +1538,7 @@ class CreditService {
     try {
       const balance = await this.getCreditBalance(userId);
       const hasSufficient = balance.availableCredits >= requiredAmount;
-      
+
       return {
         userId,
         requiredAmount,

@@ -229,6 +229,93 @@ logger.logAudit = (action, userId, resource, details = {}) => {
   });
 };
 
+// Sanitize sensitive data from logs
+logger.sanitize = (data) => {
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+
+  const sensitiveKeys = [
+    'password',
+    'secret',
+    'token',
+    'apiKey',
+    'api_key',
+    'webhookSecret',
+    'webhook_secret',
+    'razorpayKeySecret',
+    'razorpay_key_secret',
+    'RAZORPAY_KEY_SECRET',
+    'RAZORPAY_WEBHOOK_SECRET',
+    'authorization',
+    'x-razorpay-signature',
+    'cardNumber',
+    'card_number',
+    'cvv',
+    'pin'
+  ];
+
+  const sanitized = Array.isArray(data) ? [...data] : { ...data };
+
+  const sanitizeRecursive = (obj) => {
+    if (!obj || typeof obj !== 'object') {
+      return obj;
+    }
+
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        // Check if key is sensitive
+        const lowerKey = key.toLowerCase();
+        const isSensitive = sensitiveKeys.some(sensitiveKey => 
+          lowerKey.includes(sensitiveKey.toLowerCase())
+        );
+
+        if (isSensitive) {
+          obj[key] = '[REDACTED]';
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+          obj[key] = sanitizeRecursive(obj[key]);
+        }
+      }
+    }
+
+    return obj;
+  };
+
+  return sanitizeRecursive(sanitized);
+};
+
+// Log webhook events with sanitization
+logger.logWebhook = (event, data = {}) => {
+  const sanitizedData = logger.sanitize(data);
+  logger.info('Webhook Event', {
+    event,
+    timestamp: new Date().toISOString(),
+    ...sanitizedData
+  });
+};
+
+// Log credit operations with structured format
+logger.logCreditOperation = (operation, userId, amount, details = {}) => {
+  logger.info('Credit Operation', {
+    operation,
+    userId,
+    amount,
+    timestamp: new Date().toISOString(),
+    ...details
+  });
+};
+
+// Log scheduled job execution
+logger.logJobExecution = (jobName, status, stats = {}) => {
+  const level = status === 'failed' ? 'error' : 'info';
+  logger[level]('Scheduled Job', {
+    jobName,
+    status,
+    timestamp: new Date().toISOString(),
+    ...stats
+  });
+};
+
 // Handle uncaught exceptions and unhandled rejections
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception', {
