@@ -270,365 +270,299 @@ templateSchema.statics = {
    * @param {Object} options - Query options
    * @returns {Promise<Object>} Paginated results
    */
- async getTemplatesWithFilters(filters = {}, options = {}) {
-  const {
-    category = null,
-    type = null,
-    tags = [],
-    color = [],
-    difficulty = null,
-    aspectRatio = null,
-    isFeatured = null,
-    search = null,
-  } = filters;
+  async getTemplatesWithFilters(filters = {}, options = {}) {
+    const {
+      category = null,
+      type = null,
+      tags = [],
+      color = [],
+      difficulty = null,
+      aspectRatio = null,
+      isFeatured = null,
+      search = null,
+    } = filters;
 
-  function escapeRegExp(str) {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
+    function escapeRegExp(str) {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
 
-  const {
-    page = 1,
-    limit = 12,
-    templatesPerFestive = 1,
-    sort = { "metrics.usageCount": -1, createdAt: -1 },
-    random = false,
-  } = options;
+    const {
+      page = 1,
+      limit = 12,
+      templatesPerFestive = 1,
+      sort = { "metrics.usageCount": -1, createdAt: -1 },
+      random = false,
+    } = options;
 
-  const festiveList = [
-    "chatt puja",
-    "diwali",
-    "holi",
-    "eid ul fitr",
-    "christmas",
-    "janmashtami",
-    "independence day",
-    "durga puja",
-    "raakhi",
-    "womans day",
-    "ganesh chaturthi",
-  ];
+    const festiveList = [
+      "chatt puja",
+      "diwali",
+      "holi",
+      "eid ul fitr",
+      "christmas",
+      "janmashtami",
+      "independence day",
+      "durga puja",
+      "raakhi",
+      "womans day",
+      "ganesh chaturthi",
+    ];
 
-  const query = {
-    status: "active",
-    isPublic: true,
-    ...(category && { category }),
-    ...(type && { type }),
-    ...(difficulty && { difficulty }),
-    ...(aspectRatio && { "aspectRatio.ratio": aspectRatio }),
-    ...(isFeatured !== null && { isFeatured }),
-  };
+    const query = {
+      status: "active",
+      isPublic: true,
+      ...(category && { category }),
+      ...(type && { type }),
+      ...(difficulty && { difficulty }),
+      ...(aspectRatio && { "aspectRatio.ratio": aspectRatio }),
+      ...(isFeatured !== null && { isFeatured }),
+    };
 
-  // Handle tags filtering
-  const userSelectedFestiveTags = tags.filter(tag => 
-    festiveList.includes(tag.toLowerCase())
-  );
-  const otherTags = tags.filter(tag => 
-    !festiveList.includes(tag.toLowerCase())
-  );
-
-  if (otherTags.length > 0) {
-    query.tags = { $in: otherTags };
-  }
-
-  const selectedColors = color.filter(Boolean);
-  if (selectedColors.length > 0) {
-    const regexes = selectedColors.map(
-      (c) => new RegExp(escapeRegExp(c), "i")
+    // Handle tags filtering
+    const userSelectedFestiveTags = tags.filter((tag) =>
+      festiveList.includes(tag.toLowerCase())
     );
-    Object.assign(query, { "metadata.colorSchemes": { $in: regexes } });
-  }
+    const otherTags = tags.filter(
+      (tag) => !festiveList.includes(tag.toLowerCase())
+    );
 
-  if (search) query.$text = { $search: search };
+    if (otherTags.length > 0) {
+      query.tags = { $in: otherTags };
+    }
 
-  // 🎯 INTERLEAVED MODE: Show variety by cycling through festives
-  const shouldUseInterleavedMode = random && !search && userSelectedFestiveTags.length === 0;
+    const selectedColors = color.filter(Boolean);
+    if (selectedColors.length > 0) {
+      const regexes = selectedColors.map(
+        (c) => new RegExp(escapeRegExp(c), "i")
+      );
+      Object.assign(query, { "metadata.colorSchemes": { $in: regexes } });
+    }
 
-  if (shouldUseInterleavedMode) {
-    // Strategy: Get ALL templates from all festives, assign them a round-robin position,
-    // then paginate normally on that sorted list
+    if (search) query.$text = { $search: search };
 
-    const skip = (page - 1) * limit;
+    // 🎯 INTERLEAVED MODE: Show variety by cycling through festives
+    const shouldUseInterleavedMode =
+      random && !search && userSelectedFestiveTags.length === 0;
 
-    const pipeline = [];
+    if (shouldUseInterleavedMode) {
+      // Strategy: Get ALL templates from all festives, assign them a round-robin position,
+      // then paginate normally on that sorted list
 
-    // 1️⃣ Match base query
-    pipeline.push({ $match: query });
+      const skip = (page - 1) * limit;
 
-    // 2️⃣ Extract festive from tags
-    pipeline.push({
-      $addFields: {
-        festive: {
-          $first: {
-            $filter: {
-              input: "$tags",
-              as: "tag",
-              cond: { $in: ["$$tag", festiveList] },
+      const pipeline = [];
+
+      // 1️⃣ Match base query
+      pipeline.push({ $match: query });
+
+      // 2️⃣ Extract festive from tags
+      pipeline.push({
+        $addFields: {
+          festive: {
+            $first: {
+              $filter: {
+                input: "$tags",
+                as: "tag",
+                cond: { $in: ["$$tag", festiveList] },
+              },
             },
           },
         },
-      },
-    });
+      });
 
-    // 3️⃣ Only keep templates with festive tags
-    pipeline.push({
-      $match: {
-        festive: { $exists: true, $ne: null },
-      },
-    });
-
-    // 4️⃣ Sort within each festive group (by usage, then date)
-    pipeline.push({
-      $sort: {
-        festive: 1,
-        "metrics.usageCount": -1,
-        createdAt: -1,
-      },
-    });
-
-    // 5️⃣ Group by festive and assign position within each festive
-    pipeline.push({
-      $group: {
-        _id: "$festive",
-        templates: {
-          $push: {
-            doc: "$$ROOT",
-            positionInFestive: { $sum: 1 }, // This doesn't work, we need to use $setWindowFields
-          },
+      // 3️⃣ Only keep templates with festive tags
+      pipeline.push({
+        $match: {
+          festive: { $exists: true, $ne: null },
         },
-      },
-    });
+      });
 
-    // 6️⃣ Unwind with index to get position
-    pipeline.push({
-      $unwind: {
-        path: "$templates",
-        includeArrayIndex: "positionInFestive",
-      },
-    });
-
-    // 7️⃣ Calculate interleaved position
-    // Template at position X in festive F gets global position: X * totalFestives + F
-    // This creates round-robin: F0-T0, F1-T0, F2-T0, ..., F0-T1, F1-T1, ...
-    pipeline.push({
-      $addFields: {
-        festiveIndex: {
-          $indexOfArray: [festiveList, "$_id"],
+      // 4️⃣ Sort within each festive group (by usage, then date)
+      pipeline.push({
+        $sort: {
+          festive: 1,
+          "metrics.usageCount": -1,
+          createdAt: -1,
         },
-        interleavedPosition: {
-          $add: [
-            { $multiply: ["$positionInFestive", festiveList.length] },
-            { $indexOfArray: [festiveList, "$_id"] },
-          ],
-        },
-      },
-    });
+      });
 
-    // 8️⃣ Replace root with the actual template
-    pipeline.push({
-      $replaceRoot: {
-        newRoot: {
-          $mergeObjects: [
-            "$templates.doc",
-            {
-              _interleavedPosition: "$interleavedPosition",
-              _festive: "$_id",
-              _positionInFestive: "$positionInFestive",
-            },
-          ],
-        },
-      },
-    });
-
-    // 9️⃣ Sort by interleaved position (this creates the round-robin effect)
-    pipeline.push({
-      $sort: {
-        _interleavedPosition: 1,
-      },
-    });
-
-    // 🔟 Apply pagination
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: limit });
-
-    // 1️⃣1️⃣ Add id field and remove debug fields
-    // 1️⃣1️⃣ Add the 'id' field
-    pipeline.push({
-      $addFields: {
-        id: "$_id",
-      },
-    });
-
-    // 1️⃣2️⃣ Remove the internal debug fields
-    pipeline.push({
-      $unset: ["_interleavedPosition", "_festive", "_positionInFestive"],
-    });
-
-    // Execute pipeline
-    const templates = await this.aggregate(pipeline).exec();
-
-    // Get total count of templates with festive tags
-    const total = await this.countDocuments({
-      ...query,
-      tags: { $in: festiveList },
-    }).exec();
-
-    const totalPages = Math.ceil(total / limit);
-
-    console.log(`📊 Interleaved Page ${page}:`, {
-      templatesReturned: templates.length,
-      total,
-      totalPages,
-      skip,
-    });
-
-    return {
-      templates,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1,
-      },
-    };
-  }
-
-  // 🎨 FILTERED MODE: User selected specific festive tags
-  if (userSelectedFestiveTags.length > 0) {
-    // Use same interleaved logic but only for selected festives
-    const skip = (page - 1) * limit;
-
-    const pipeline = [];
-
-    // 1️⃣ Match base query
-    pipeline.push({ $match: query });
-
-    // 2️⃣ Extract festive from tags
-    pipeline.push({
-      $addFields: {
-        festive: {
-          $first: {
-            $filter: {
-              input: "$tags",
-              as: "tag",
-              cond: { $in: ["$tag", userSelectedFestiveTags] }, // Only selected festives
+      // 5️⃣ Group by festive and assign position within each festive
+      pipeline.push({
+        $group: {
+          _id: "$festive",
+          templates: {
+            $push: {
+              doc: "$$ROOT",
+              positionInFestive: { $sum: 1 }, // This doesn't work, we need to use $setWindowFields
             },
           },
         },
-      },
-    });
+      });
 
-    // 3️⃣ Only keep templates with selected festive tags
-    pipeline.push({
-      $match: {
-        festive: { $exists: true, $ne: null },
-      },
-    });
-
-    // 4️⃣ Sort within each festive group
-    pipeline.push({
-      $sort: {
-        festive: 1,
-        "metrics.usageCount": -1,
-        createdAt: -1,
-      },
-    });
-
-    // 5️⃣ Group by festive
-    pipeline.push({
-      $group: {
-        _id: "$festive",
-        templates: {
-          $push: "$ROOT",
+      // 6️⃣ Unwind with index to get position
+      pipeline.push({
+        $unwind: {
+          path: "$templates",
+          includeArrayIndex: "positionInFestive",
         },
-      },
-    });
+      });
 
-    // 6️⃣ Unwind with index to get position
-    pipeline.push({
-      $unwind: {
-        path: "$templates",
-        includeArrayIndex: "positionInFestive",
-      },
-    });
-
-    // 7️⃣ Calculate interleaved position using selected festives count
-    pipeline.push({
-      $addFields: {
-        festiveIndex: {
-          $indexOfArray: [userSelectedFestiveTags, "$_id"],
+      // 7️⃣ Calculate interleaved position
+      // Template at position X in festive F gets global position: X * totalFestives + F
+      // This creates round-robin: F0-T0, F1-T0, F2-T0, ..., F0-T1, F1-T1, ...
+      pipeline.push({
+        $addFields: {
+          festiveIndex: {
+            $indexOfArray: [festiveList, "$_id"],
+          },
+          interleavedPosition: {
+            $add: [
+              { $multiply: ["$positionInFestive", festiveList.length] },
+              { $indexOfArray: [festiveList, "$_id"] },
+            ],
+          },
         },
-        interleavedPosition: {
-          $add: [
-            {
-              $multiply: ["$positionInFestive", userSelectedFestiveTags.length],
-            },
-            { $indexOfArray: [userSelectedFestiveTags, "$_id"] },
-          ],
+      });
+
+      // 8️⃣ Replace root with the actual template
+      pipeline.push({
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: [
+              "$templates.doc",
+              {
+                _interleavedPosition: "$interleavedPosition",
+                _festive: "$_id",
+                _positionInFestive: "$positionInFestive",
+              },
+            ],
+          },
         },
-      },
-    });
+      });
 
-    // 8️⃣ Replace root
-    pipeline.push({
-      $replaceRoot: {
-        newRoot: {
-          $mergeObjects: [
-            "$templates",
-            {
-              _interleavedPosition: "$interleavedPosition",
-            },
-          ],
+      // 9️⃣ Sort by interleaved position (this creates the round-robin effect)
+      pipeline.push({
+        $sort: {
+          _interleavedPosition: 1,
         },
-      },
-    });
+      });
 
-    // 9️⃣ Sort by interleaved position
-    pipeline.push({
-      $sort: {
-        _interleavedPosition: 1,
-      },
-    });
+      // 🔟 Apply pagination
+      pipeline.push({ $skip: skip });
+      pipeline.push({ $limit: limit });
 
-    // 🔟 Apply pagination
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: limit });
+      // 1️⃣1️⃣ Remove debug fields only (exclusion projection)
+      pipeline.push({
+        $project: {
+          _interleavedPosition: 0,
+          _festive: 0,
+          _positionInFestive: 0,
+        },
+      });
 
-    // 1️⃣1️⃣ Add the 'id' field
-    pipeline.push({
-      $addFields: {
-        id: "$_id",
-      },
-    });
+      // Execute pipeline
+      const templates = await this.aggregate(pipeline).exec();
 
-    // 1️⃣2️⃣ Remove the internal debug field
-    pipeline.push({
-      $unset: ["_interleavedPosition"],
-    });
+      // Get total count of templates with festive tags
+      const total = await this.countDocuments({
+        ...query,
+        tags: { $in: festiveList },
+      }).exec();
 
-    // Execute pipeline
-    const templates = await this.aggregate(pipeline).exec();
+      const totalPages = Math.ceil(total / limit);
 
-    // Get total count
-    const festiveQuery = {
-      ...query,
-      tags: { $in: userSelectedFestiveTags },
-    };
-
-    const total = await this.countDocuments(festiveQuery).exec();
-    const totalPages = Math.ceil(total / limit);
-
-    console.log(
-      `🎨 Filtered Interleaved Mode - Selected: ${userSelectedFestiveTags.join(
-        ", "
-      )}`,
-      {
+      console.log(`📊 Interleaved Page ${page}:`, {
         templatesReturned: templates.length,
         total,
         totalPages,
+        skip,
+      });
+
+      return {
+        templates,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    }
+
+    // 🎨 FILTERED MODE: User selected specific festive tags
+    if (userSelectedFestiveTags.length > 0) {
+      const festiveQuery = {
+        ...query,
+        tags: {
+          $all: [...otherTags],
+          $in: userSelectedFestiveTags,
+        },
+      };
+
+      if (otherTags.length === 0) {
+        festiveQuery.tags = { $in: userSelectedFestiveTags };
       }
-    );
+
+      const skip = (page - 1) * limit;
+
+      const [templates, total] = await Promise.all([
+        this.find(festiveQuery)
+          .select(
+            "name description category tags metadata.colorSchemes images aspectRatio type difficulty metrics isFeatured"
+          )
+          .sort(sort)
+          .limit(limit)
+          .skip(skip)
+          .exec(),
+        this.countDocuments(festiveQuery).exec(),
+      ]);
+
+      console.log(
+        `🎨 Filtered Mode - Selected: ${userSelectedFestiveTags.join(", ")}`,
+        {
+          templatesReturned: templates.length,
+          total,
+        }
+      );
+
+      return {
+        templates,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+          hasNext: page < Math.ceil(total / limit),
+          hasPrev: page > 1,
+        },
+      };
+    }
+
+    // 🧭 DEFAULT MODE: Normal pagination
+    if (tags.length > 0) {
+      query.tags = { $in: tags };
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [templates, total] = await Promise.all([
+      this.find(query)
+        .select(
+          "name description category tags metadata.colorSchemes images aspectRatio type difficulty metrics isFeatured"
+        )
+        .sort(search ? { score: { $meta: "textScore" }, ...sort } : sort)
+        .limit(limit)
+        .skip(skip)
+        .exec(),
+      this.countDocuments(query).exec(),
+    ]);
+
+    console.log(`🧭 Default Mode:`, {
+      templatesReturned: templates.length,
+      total,
+    });
 
     return {
       templates,
@@ -636,49 +570,12 @@ templateSchema.statics = {
         page,
         limit,
         total,
-        pages: totalPages,
-        hasNext: page < totalPages,
+        pages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
         hasPrev: page > 1,
       },
     };
-  }
-
-  // 🧭 DEFAULT MODE: Normal pagination
-  if (tags.length > 0) {
-    query.tags = { $in: tags };
-  }
-
-  const skip = (page - 1) * limit;
-  
-  const [templates, total] = await Promise.all([
-    this.find(query)
-      .select(
-        "name description category tags metadata.colorSchemes images aspectRatio type difficulty metrics isFeatured"
-      )
-      .sort(search ? { score: { $meta: "textScore" }, ...sort } : sort)
-      .limit(limit)
-      .skip(skip)
-      .exec(),
-    this.countDocuments(query).exec(),
-  ]);
-
-  console.log(`🧭 Default Mode:`, {
-    templatesReturned: templates.length,
-    total,
-  });
-
-  return {
-    templates,
-    pagination: {
-      page,
-      limit,
-      total,
-      pages: Math.ceil(total / limit),
-      hasNext: page < Math.ceil(total / limit),
-      hasPrev: page > 1,
-    },
-  };
-},
+  },
 
   // 🔧 Helper function to generate consistent hash from string
   // Add this as a static method or outside function
