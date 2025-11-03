@@ -289,7 +289,6 @@ templateSchema.statics = {
     const {
       page = 1,
       limit = 12,
-      templatesPerFestive = 1,
       sort = { "metrics.usageCount": -1, createdAt: -1 },
       random = false,
     } = options;
@@ -451,13 +450,16 @@ templateSchema.statics = {
       pipeline.push({ $skip: skip });
       pipeline.push({ $limit: limit });
 
-      // 1️⃣1️⃣ Remove debug fields only (exclusion projection)
+      // 1️⃣1️⃣ Add the 'id' field
       pipeline.push({
-        $project: {
-          _interleavedPosition: 0,
-          _festive: 0,
-          _positionInFestive: 0,
+        $addFields: {
+          id: "$_id",
         },
+      });
+
+      // 1️⃣2️⃣ Remove the internal debug fields
+      pipeline.push({
+        $unset: ["_interleavedPosition", "_festive", "_positionInFestive"],
       });
 
       // Execute pipeline
@@ -509,13 +511,15 @@ templateSchema.statics = {
 
       const [templates, total] = await Promise.all([
         this.find(festiveQuery)
-          .select(
-            "name description category tags metadata.colorSchemes images aspectRatio type difficulty metrics isFeatured"
-          )
+          .select("-status -isPublic -__v -createdAt -updatedAt")
           .sort(sort)
           .limit(limit)
           .skip(skip)
-          .exec(),
+          .lean()
+          .exec()
+          .then((docs) =>
+            docs.map((d) => ({ id: d._id.toString(), ...d, _id: undefined }))
+          ),
         this.countDocuments(festiveQuery).exec(),
       ]);
 
@@ -555,7 +559,11 @@ templateSchema.statics = {
         .sort(search ? { score: { $meta: "textScore" }, ...sort } : sort)
         .limit(limit)
         .skip(skip)
-        .exec(),
+        .lean()
+        .exec()
+        .then((docs) =>
+          docs.map((d) => ({ id: d._id.toString(), ...d, _id: undefined }))
+        ),
       this.countDocuments(query).exec(),
     ]);
 
