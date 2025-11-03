@@ -289,6 +289,7 @@ templateSchema.statics = {
   const {
     page = 1,
     limit = 12,
+    templatesPerFestive = 1,
     sort = { "metrics.usageCount": -1, createdAt: -1 },
     random = false,
   } = options;
@@ -345,7 +346,7 @@ templateSchema.statics = {
   if (shouldUseInterleavedMode) {
     // Strategy: Get ALL templates from all festives, assign them a round-robin position,
     // then paginate normally on that sorted list
-    
+
     const skip = (page - 1) * limit;
 
     const pipeline = [];
@@ -388,11 +389,11 @@ templateSchema.statics = {
     pipeline.push({
       $group: {
         _id: "$festive",
-        templates: { 
+        templates: {
           $push: {
             doc: "$$ROOT",
-            positionInFestive: { $sum: 1 } // This doesn't work, we need to use $setWindowFields
-          }
+            positionInFestive: { $sum: 1 }, // This doesn't work, we need to use $setWindowFields
+          },
         },
       },
     });
@@ -449,13 +450,17 @@ templateSchema.statics = {
     pipeline.push({ $skip: skip });
     pipeline.push({ $limit: limit });
 
-    // 1️⃣1️⃣ Remove debug fields only (exclusion projection)
+    // 1️⃣1️⃣ Add id field and remove debug fields
+    // 1️⃣1️⃣ Add the 'id' field
     pipeline.push({
-      $project: {
-        _interleavedPosition: 0,
-        _festive: 0,
-        _positionInFestive: 0,
+      $addFields: {
+        id: "$_id",
       },
+    });
+
+    // 1️⃣2️⃣ Remove the internal debug fields
+    pipeline.push({
+      $unset: ["_interleavedPosition", "_festive", "_positionInFestive"],
     });
 
     // Execute pipeline
@@ -491,36 +496,139 @@ templateSchema.statics = {
 
   // 🎨 FILTERED MODE: User selected specific festive tags
   if (userSelectedFestiveTags.length > 0) {
-    const festiveQuery = {
-      ...query,
-      tags: { 
-        $all: [...otherTags],
-        $in: userSelectedFestiveTags,
-      },
-    };
-
-    if (otherTags.length === 0) {
-      festiveQuery.tags = { $in: userSelectedFestiveTags };
-    }
-
+    // Use same interleaved logic but only for selected festives
     const skip = (page - 1) * limit;
 
-    const [templates, total] = await Promise.all([
-      this.find(festiveQuery)
-        .select(
-          "name description category tags metadata.colorSchemes images aspectRatio type difficulty metrics isFeatured"
-        )
-        .sort(sort)
-        .limit(limit)
-        .skip(skip)
-        .exec(),
-      this.countDocuments(festiveQuery).exec(),
-    ]);
+    const pipeline = [];
 
-    console.log(`🎨 Filtered Mode - Selected: ${userSelectedFestiveTags.join(', ')}`, {
-      templatesReturned: templates.length,
-      total,
+    // 1️⃣ Match base query
+    pipeline.push({ $match: query });
+
+    // 2️⃣ Extract festive from tags
+    pipeline.push({
+      $addFields: {
+        festive: {
+          $first: {
+            $filter: {
+              input: "$tags",
+              as: "tag",
+              cond: { $in: ["$tag", userSelectedFestiveTags] }, // Only selected festives
+            },
+          },
+        },
+      },
     });
+
+    // 3️⃣ Only keep templates with selected festive tags
+    pipeline.push({
+      $match: {
+        festive: { $exists: true, $ne: null },
+      },
+    });
+
+    // 4️⃣ Sort within each festive group
+    pipeline.push({
+      $sort: {
+        festive: 1,
+        "metrics.usageCount": -1,
+        createdAt: -1,
+      },
+    });
+
+    // 5️⃣ Group by festive
+    pipeline.push({
+      $group: {
+        _id: "$festive",
+        templates: {
+          $push: "$ROOT",
+        },
+      },
+    });
+
+    // 6️⃣ Unwind with index to get position
+    pipeline.push({
+      $unwind: {
+        path: "$templates",
+        includeArrayIndex: "positionInFestive",
+      },
+    });
+
+    // 7️⃣ Calculate interleaved position using selected festives count
+    pipeline.push({
+      $addFields: {
+        festiveIndex: {
+          $indexOfArray: [userSelectedFestiveTags, "$_id"],
+        },
+        interleavedPosition: {
+          $add: [
+            {
+              $multiply: ["$positionInFestive", userSelectedFestiveTags.length],
+            },
+            { $indexOfArray: [userSelectedFestiveTags, "$_id"] },
+          ],
+        },
+      },
+    });
+
+    // 8️⃣ Replace root
+    pipeline.push({
+      $replaceRoot: {
+        newRoot: {
+          $mergeObjects: [
+            "$templates",
+            {
+              _interleavedPosition: "$interleavedPosition",
+            },
+          ],
+        },
+      },
+    });
+
+    // 9️⃣ Sort by interleaved position
+    pipeline.push({
+      $sort: {
+        _interleavedPosition: 1,
+      },
+    });
+
+    // 🔟 Apply pagination
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    // 1️⃣1️⃣ Add the 'id' field
+    pipeline.push({
+      $addFields: {
+        id: "$_id",
+      },
+    });
+
+    // 1️⃣2️⃣ Remove the internal debug field
+    pipeline.push({
+      $unset: ["_interleavedPosition"],
+    });
+
+    // Execute pipeline
+    const templates = await this.aggregate(pipeline).exec();
+
+    // Get total count
+    const festiveQuery = {
+      ...query,
+      tags: { $in: userSelectedFestiveTags },
+    };
+
+    const total = await this.countDocuments(festiveQuery).exec();
+    const totalPages = Math.ceil(total / limit);
+
+    console.log(
+      `🎨 Filtered Interleaved Mode - Selected: ${userSelectedFestiveTags.join(
+        ", "
+      )}`,
+      {
+        templatesReturned: templates.length,
+        total,
+        totalPages,
+      }
+    );
 
     return {
       templates,
@@ -528,8 +636,8 @@ templateSchema.statics = {
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit),
-        hasNext: page < Math.ceil(total / limit),
+        pages: totalPages,
+        hasNext: page < totalPages,
         hasPrev: page > 1,
       },
     };
@@ -818,6 +926,6 @@ templateSchema.methods = {
   },
 };
 
-const Template = mongoose.model("dbtransfer", templateSchema);
+const Template = mongoose.model("Template", templateSchema);
 
 module.exports = Template;
