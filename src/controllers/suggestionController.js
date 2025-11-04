@@ -1,5 +1,5 @@
 // We will create and import this service in the next step
-const SuggestionService = require("../services/SuggestionService");
+const SuggestionService = require("../services/suggestionService");
 const logger = require("../utils/logger");
 
 /**
