@@ -303,7 +303,7 @@ templateSchema.statics = {
       "independence day",
       "durga puja",
       "raakhi",
-      "womans day",
+      "women's day",
       "ganesh chaturthi",
     ];
 
