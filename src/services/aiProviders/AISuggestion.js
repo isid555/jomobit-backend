@@ -165,8 +165,11 @@ class AIProvider {
    * @returns {{systemPrompt: string, userPrompt: string}}
    */
   _buildBusinessNamePrompt(options) {
-    const systemPrompt =
-      "You are a creative branding expert. You respond *only* with valid JSON.";
+    const systemPrompt = `You are a creative branding expert. You respond *only* with valid JSON.
+      The names should be:
+      - Easy to pronounce and remember
+      - Relevant to the niche
+      - Unique and brandable`;
 
     // Start with the base user prompt
     let userPrompt = [
@@ -215,8 +218,15 @@ class AIProvider {
    * @returns {{systemPrompt: string, userPrompt: string}}
    */
   _buildTaglinePrompt(options) {
-    const systemPrompt =
-      "You are a creative marketing and branding expert. You respond *only* with valid JSON.";
+    const systemPrompt = `You are a creative marketing and branding expert. You respond *only* with valid JSON.
+      The taglines should be:
+      - Complement the business name
+      - Catch attention
+      - Reflect the niche/industry
+      - Are memorable and concise (5-10 words)
+      - Convey value proposition
+      - Are emotionally resonant, the reader should be drawn in
+      - Are unique and brandable`;
 
     let userPrompt = [
       `Generate 5-10 catchy and creative taglines.`,
@@ -276,8 +286,15 @@ class AIProvider {
    * @returns {{systemPrompt: string, userPrompt: string}}
    */
   _buildColorPalettePrompt(options) {
-    const systemPrompt =
-      "You are a professional brand designer and color theory expert. You respond *only* with valid JSON.";
+    const systemPrompt = `You are a professional brand designer and color theory expert. You respond *only* with valid JSON.
+      The color palettes should follow these guidelines:
+      - Color psychology for the niche
+      - Industry standards and trends
+      - Accessibility (WCAG AA compliance)
+      - Contrast ratios for readability
+      - Consider cultural color meanings
+      - Ensure colors work well together
+      - Color harmony and balance`;
 
     let userPrompt = [
       `Generate 6-10 color palettes.`,
@@ -349,8 +366,19 @@ class AIProvider {
    * @returns {{systemPrompt: string, userPrompt: string}}
    */
   _buildFontPairPrompt(options) {
-    const systemPrompt =
-      "You are a professional typographer and brand designer. You respond *only* with valid JSON.";
+    const systemPrompt = `You are a professional typographer and brand designer. You respond *only* with valid JSON.
+      The font pairings should follow these guidelines:
+      - Work well together (contrast + harmony)
+      - Are web-safe or Google Fonts
+      - Have good readability
+      - Cover different styles (modern, classic, playful, elegant)
+      Recommended Font Pairs [Not limited to these only]:
+      - Modern Sans: Inter + Roboto
+      - Classic Serif: Playfair Display + Lora
+      - Tech Forward: Space Grotesk + JetBrains Mono
+      - Elegant: Cormorant + Montserrat
+      - Friendly: Poppins + Open Sans
+      - Bold Statement: Bebas Neue + Raleway`;
 
     let userPrompt = [
       `Generate 6-10 curated font pairings.`,
@@ -387,8 +415,14 @@ class AIProvider {
    * @returns {{systemPrompt: string, userPrompt: string}}
    */
   _buildProductPrompt(options) {
-    const systemPrompt =
-      "You are a business consultant and industry expert. You respond *only* with valid JSON.";
+    const systemPrompt = `You are a business consultant and industry expert. You respond *only* with valid JSON.
+      The products should be relevant to the niche.
+      Products should cover these areas:
+      - Common products/services in the niche
+      - Trending offerings
+      - Complementary services
+      - Upsell opportunities
+      - Order by popularity or relevance`;
 
     let userPrompt = [
       `Generate a list of 8-15 relevant products or services.`,
@@ -439,24 +473,41 @@ class AIProvider {
    */
   _buildDescriptionPrompt(options) {
     const systemPrompt =
-      "You are a professional copywriter and brand strategist. You write clear, compelling, and concise text. You respond *only* with the requested text, no pleasantries or extra formatting.";
+      `You are a professional copywriter and brand strategist.
+      You write clear, compelling, and concise text. You respond *only* with the requested text, no pleasantries or extra formatting.
+      Your task is to enhance the brand description provided by the user.
+      Brand Info provided:
+      - Business Name
+      - Niche
+      - Description [Initial raw description provided by user]
+      You may also have additional information if provided by user. In such cases, use the provided information to enhance the description.
+      Guidelines:
+      - Use the provided information to generate a compelling and engaging description.
+      - Focus on the niche and target audience.
+      - Use the provided tone and personality.
+      - Should be catchy and professional.
+      - Use the provided keywords and product offerings.
+      - Use the provided visual elements and imagery. Use the visuals to create a unique and visually appealing description.
+      - Include a mix of keywords, product offerings, and visual elements.`;
 
     let userPrompt = [
       `Write a compelling "About Us" or brand description (approx 50-100 words).`,
-      `The description must be based *only* on the following information:`,
+      `The description must be based professionally crafted and engaging. Business Info provided:`,
     ];
 
     // 1. Add *required* parameters
     userPrompt.push(`- Business Name: "${options.businessName}"`);
     userPrompt.push(`- Niche: "${options.niche}"`);
-    userPrompt.push(`- Tagline: "${options.tagline}"`);
-
-    if (Array.isArray(options.products) && options.products.length > 0) {
-      userPrompt.push(`- Products/Services: ${options.products.join(", ")}.`);
-    }
+    userPrompt.push(`- Description: "${options.description}"`);
 
     // 2. Add *flexible, optional* parameters
     userPrompt.push("\nUse these optional details to guide the writing:");
+    if (options.tagline) {
+      userPrompt.push(`- Tagline: "${options.tagline}"`);
+    }
+    if (options.products && Array.isArray(options.products) && options.products.length > 0) {
+      userPrompt.push(`- Products/Services: ${options.products.join(", ")}.`);
+    }
     if (options.targetAudience) {
       userPrompt.push(`- Target Audience: ${options.targetAudience}`);
     }
@@ -491,7 +542,13 @@ class AIProvider {
    * @returns {{systemPrompt: string, userPrompt: string}}
    */
   _buildLogoPrompt(options) {
-    const systemPrompt = "You are an expert prompt engineer for AI image models. You create short, descriptive, and effective prompts to generate business logos. You respond *only* with the prompt text.";
+    const systemPrompt = `You are an expert prompt engineer for AI image models. Your task is to create professional prompts to generate logos for brands. You respond *only* with the prompt text.
+    Guidelines:
+    - You'll be provided with brand info and other details
+    - Use the provided info to understand the brand's style, pshycology and personality.
+    - The logos must be professional and resonate with the brand values. They should be creative and visually appealing.
+    - Logo must reflect the brand's target audience and niche.
+    - You need to craft unique and creative ideas for logos`;
 
     // Use the exact template from the documentation for best results
     //

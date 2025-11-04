@@ -519,8 +519,8 @@ class SuggestionsController {
       const options = req.body;
 
       // 2. Validate the *minimum* required parameters
-      // User specified: niche, name (using businessName), tagline, products
-      const required = ["niche", "businessName", "tagline", "products"];
+      // User specified: niche, name (using businessName)
+      const required = ["niche", "businessName"];
       for (const param of required) {
         if (!options[param]) {
           const message = `The '${param}' parameter is required.`;
@@ -533,19 +533,6 @@ class SuggestionsController {
             message: message,
           });
         }
-      }
-
-      // Specific check for 'products' array
-      if (!Array.isArray(options.products) || options.products.length === 0) {
-        const message = "The 'products' parameter must be a non-empty array.";
-        logger.warn(`Validation failed for getDescription: ${message}`, {
-          body: req.body,
-        });
-        return res.status(400).json({
-          success: false,
-          error: "BAD_REQUEST",
-          message: message,
-        });
       }
 
       // 3. Delegate to the service layer
