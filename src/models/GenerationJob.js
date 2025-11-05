@@ -271,11 +271,12 @@ generationJobSchema.statics = {
       profileId = null,
       startDate = null,
       endDate = null,
-      sort = { createdAt: -1 },
+      sortBy, // <-- Get the raw value
+      sortOrder, // <-- Get the raw value
     } = options;
 
+    // Your query logic is perfect
     const query = { userId };
-
     if (status) query.status = status;
     if (profileId) query.profileId = profileId;
 
@@ -285,13 +286,30 @@ generationJobSchema.statics = {
       if (endDate) query.createdAt.$lte = endDate;
     }
 
+    // --- NEW LOGIC START ---
+
+    // 1. Set a default sort object
+    let sortQuery = { createdAt: -1 };
+
+    // 2. Check if custom sorting is provided
+    if (sortBy && sortOrder) {
+      // 3. Convert 'asc'/'desc' to 1/-1 for MongoDB
+      const direction = sortOrder.toLowerCase() === "desc" ? -1 : 1;
+
+      // 4. Create the dynamic sort object
+      // We use [sortBy] to use the *value* of the sortBy variable as the key
+      sortQuery = { [sortBy]: direction };
+    }
+
+    // --- NEW LOGIC END ---
+
     const skip = (page - 1) * limit;
 
     const [jobs, total] = await Promise.all([
       this.find(query)
         .populate("profileId", "name")
         .populate("templateId", "name images.thumbnail aspectRatio")
-        .sort(sort)
+        .sort(sortQuery) // <-- Use the new dynamic sortQuery
         .limit(limit)
         .skip(skip)
         .exec(),
