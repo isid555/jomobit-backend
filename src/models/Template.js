@@ -275,7 +275,7 @@ templateSchema.statics = {
       category = null,
       type = null,
       tags = [],
-      color = [],
+      colors = [],
       difficulty = null,
       aspectRatio = null,
       isFeatured = null,
@@ -331,12 +331,35 @@ templateSchema.statics = {
       query.tags = { $in: otherTags };
     }
 
-    const selectedColors = color.filter(Boolean);
+    // 🎨 FIXED: Color filtering logic (OR matching - any color matches)
+    const selectedColors = colors.filter(Boolean);
     if (selectedColors.length > 0) {
-      const regexes = selectedColors.map(
-        (c) => new RegExp(escapeRegExp(c), "i")
-      );
-      Object.assign(query, { "metadata.colorSchemes": { $in: regexes } });
+      // Trim and normalize color inputs
+      const normalizedColors = selectedColors.map((c) => c.trim());
+
+      // Create regex pattern that matches ANY of the selected colors
+      // Using word boundaries (\b) to match exact color words
+      // Example: ["Red", "Green"] becomes /\b(Red|Green)\b/i
+      const colorPattern = normalizedColors
+        .map((c) => escapeRegExp(c))
+        .join("|");
+
+      const colorRegex = new RegExp(`\\b(${colorPattern})\\b`, "i");
+
+      // DEBUG: Log the regex pattern and query
+      console.log("🎨 Color Filter Applied:", {
+        originalColors: selectedColors,
+        normalizedColors,
+        regexPattern: colorRegex.toString(),
+        fullQuery: JSON.stringify(query, null, 2),
+      });
+
+      // Match templates where ANY color scheme name contains ANY of the selected colors
+      query["metadata.colorSchemes"] = {
+        $elemMatch: {
+          name: colorRegex,
+        },
+      };
     }
 
     if (search) query.$text = { $search: search };
@@ -346,14 +369,10 @@ templateSchema.statics = {
       random && !search && userSelectedFestiveTags.length === 0;
 
     if (shouldUseInterleavedMode) {
-      // Strategy: Get ALL templates from all festives, assign them a round-robin position,
-      // then paginate normally on that sorted list
-
       const skip = (page - 1) * limit;
-
       const pipeline = [];
 
-      // 1️⃣ Match base query
+      // 1️⃣ Match base query (including color filter if present)
       pipeline.push({ $match: query });
 
       // 2️⃣ Extract festive from tags
@@ -378,7 +397,7 @@ templateSchema.statics = {
         },
       });
 
-      // 4️⃣ Sort within each festive group (by usage, then date)
+      // 4️⃣ Sort within each festive group
       pipeline.push({
         $sort: {
           festive: 1,
@@ -387,16 +406,11 @@ templateSchema.statics = {
         },
       });
 
-      // 5️⃣ Group by festive and assign position within each festive
+      // 5️⃣ Group by festive
       pipeline.push({
         $group: {
           _id: "$festive",
-          templates: {
-            $push: {
-              doc: "$$ROOT",
-              positionInFestive: { $sum: 1 }, // This doesn't work, we need to use $setWindowFields
-            },
-          },
+          templates: { $push: "$$ROOT" },
         },
       });
 
@@ -409,13 +423,9 @@ templateSchema.statics = {
       });
 
       // 7️⃣ Calculate interleaved position
-      // Template at position X in festive F gets global position: X * totalFestives + F
-      // This creates round-robin: F0-T0, F1-T0, F2-T0, ..., F0-T1, F1-T1, ...
       pipeline.push({
         $addFields: {
-          festiveIndex: {
-            $indexOfArray: [festiveList, "$_id"],
-          },
+          festiveIndex: { $indexOfArray: [festiveList, "$_id"] },
           interleavedPosition: {
             $add: [
               { $multiply: ["$positionInFestive", festiveList.length] },
@@ -430,7 +440,7 @@ templateSchema.statics = {
         $replaceRoot: {
           newRoot: {
             $mergeObjects: [
-              "$templates.doc",
+              "$templates",
               {
                 _interleavedPosition: "$interleavedPosition",
                 _festive: "$_id",
@@ -441,12 +451,8 @@ templateSchema.statics = {
         },
       });
 
-      // 9️⃣ Sort by interleaved position (this creates the round-robin effect)
-      pipeline.push({
-        $sort: {
-          _interleavedPosition: 1,
-        },
-      });
+      // 9️⃣ Sort by interleaved position
+      pipeline.push({ $sort: { _interleavedPosition: 1 } });
 
       // 🔟 Apply pagination
       pipeline.push({ $skip: skip });
@@ -454,20 +460,16 @@ templateSchema.statics = {
 
       // 1️⃣1️⃣ Add the 'id' field
       pipeline.push({
-        $addFields: {
-          id: "$_id",
-        },
+        $addFields: { id: "$_id" },
       });
 
-      // 1️⃣2️⃣ Remove the internal debug fields
+      // 1️⃣2️⃣ Remove internal debug fields
       pipeline.push({
         $unset: ["_interleavedPosition", "_festive", "_positionInFestive"],
       });
 
-      // Execute pipeline
       const templates = await this.aggregate(pipeline).exec();
 
-      // Get total count of templates with festive tags
       const total = await this.countDocuments({
         ...query,
         tags: { $in: festiveList },
@@ -480,6 +482,7 @@ templateSchema.statics = {
         total,
         totalPages,
         skip,
+        colorsApplied: selectedColors,
       });
 
       return {
@@ -526,7 +529,9 @@ templateSchema.statics = {
       ]);
 
       console.log(
-        `🎨 Filtered Mode - Selected: ${userSelectedFestiveTags.join(", ")}`,
+        `🎨 Filtered Mode - Festive: ${userSelectedFestiveTags.join(
+          ", "
+        )}, Colors: ${selectedColors.join(", ")}`,
         {
           templatesReturned: templates.length,
           total,
@@ -572,6 +577,11 @@ templateSchema.statics = {
     console.log(`🧭 Default Mode:`, {
       templatesReturned: templates.length,
       total,
+      colorsApplied: selectedColors,
+      sampleColorSchemes: templates.slice(0, 3).map((t) => ({
+        name: t.name,
+        colorSchemes: t.metadata?.colorSchemes?.map((cs) => cs.name),
+      })),
     });
 
     return {
