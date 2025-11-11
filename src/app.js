@@ -552,6 +552,7 @@ class App {
     // Import routes
     const authRoutes = require('./routes/auth');
     const profileRoutes = require('./routes/profiles');
+    const suggestionRoutes = require('./routes/suggestions');
     const templateRoutes = require('./routes/templates');
     const posterRoutes = require('./routes/posters');
     const subscriptionRoutes = require('./routes/subscriptions');
@@ -568,6 +569,7 @@ class App {
     // API routes (these get JSON parsing)
     this.app.use('/api/auth', authRoutes);
     this.app.use('/api/profiles', profileRoutes);
+    this.app.use('/api/suggestions', suggestionRoutes);
     this.app.use('/api/templates', templateRoutes);
     this.app.use('/api/posters', posterRoutes);
     this.app.use('/api/subscriptions', subscriptionRoutes);
