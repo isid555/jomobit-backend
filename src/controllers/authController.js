@@ -346,11 +346,14 @@ class AuthController {
 
       console.log("Middleware breached entered service");
       
-   
-
-      const userResult = await this.userService.getUserById(id);
       // Get user with credits
       const result = await this.userService.getUserWithCredits(id);
+      
+      // Get business profile count
+      const brandsResult = await this.userService.getUserBusinessProfileCount(id);
+      
+      // Get user's plan details
+      const planDetails = await this.userService.getUserPlanDetails(id);
 
       res.json({
         success: true,
@@ -367,7 +370,15 @@ class AuthController {
             createdAt: result.user.createdAt,
             lastLoginAt: result.user.lastLoginAt
           },
-          credits: result.credits
+          credits: result.credits,
+          brands: {
+            count: brandsResult.count
+          },
+          plan: {
+            name: planDetails.plan,
+            brands_limit: planDetails.brandsLimit,
+            tier: planDetails.tier
+          }
         }
       });
 
