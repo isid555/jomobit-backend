@@ -66,6 +66,7 @@ class GenerationService {
       aiProvider = { llm: "openai", diffusion: "openai" },
       priority = "normal",
       creditsRequired = this.defaultCreditsRequired,
+      posterType = "wish",
     } = jobData;
 
     logger.info("Creating generation job", {
@@ -74,6 +75,7 @@ class GenerationService {
       templateId,
       aiProvider,
       creditsRequired,
+      posterType,
     });
 
     try {
@@ -82,7 +84,8 @@ class GenerationService {
         userId,
         profileId,
         templateId,
-        aiProvider
+        aiProvider,
+        posterType
       );
 
       logger.info("AI Providers: ", aiProvider);
@@ -95,6 +98,7 @@ class GenerationService {
         creditsReserved: creditsRequired,
         aiProvider,
         priority,
+        posterType,
       });
 
       // Reserve credits with job ID
@@ -107,6 +111,7 @@ class GenerationService {
           aiProvider,
           profileId,
           templateId,
+          posterType,
         }
       );
 
@@ -115,6 +120,7 @@ class GenerationService {
         userId,
         creditsReserved: creditsRequired,
         availableCredits: creditReservation.availableCredits,
+        posterType,
       });
 
       // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
@@ -195,6 +201,8 @@ class GenerationService {
       const promptResult = await this.generatePrompt(job);
       await job.updatePrompt(promptResult.prompt, promptResult.parameters);
 
+      console.log(promptResult);
+
       // Step 2: Generate image using diffusion provider
       const imageResult = await this.generateImage(job, promptResult.prompt);
 
@@ -243,6 +251,7 @@ class GenerationService {
         llmProvider: job.aiProvider.llm,
         profileName: job.profileId.name,
         templateName: job.templateId.name,
+        posterType: job.posterType,
         template: job.templateId,
         profile: job.profileId,
       });
@@ -250,10 +259,11 @@ class GenerationService {
       // Create LLM provider instance
       const llmProvider = providerFactory.createLLMProvider(job.aiProvider.llm);
 
-      // Generate prompt using business profile and template
+      // Generate prompt using business profile, template, and posterType
       const prompt = await llmProvider.generatePrompt(
         job.profileId.getGenerationSummary(),
-        job.templateId
+        job.templateId,
+        job.posterType
       );
 
       const promptGenerationTime = Date.now() - startTime;
@@ -268,6 +278,7 @@ class GenerationService {
         promptLength: prompt.length,
         generationTime: promptGenerationTime,
         provider: job.aiProvider.llm,
+        posterType: job.posterType,
       });
 
       return {
@@ -277,6 +288,7 @@ class GenerationService {
           generationTime: promptGenerationTime,
           profileId: job.profileId._id,
           templateId: job.templateId._id,
+          posterType: job.posterType,
         },
       };
     } catch (error) {
@@ -653,9 +665,20 @@ class GenerationService {
    * @param {string|ObjectId} profileId - Business profile ID
    * @param {string|ObjectId} templateId - Template ID
    * @param {Object} aiProvider - AI provider configuration
+   * @param {string} posterType - Poster type
    * @returns {Promise<void>} Validation result
    */
-  async validateGenerationRequest(userId, profileId, templateId, aiProvider) {
+  async validateGenerationRequest(userId, profileId, templateId, aiProvider, posterType) {
+    // Validate posterType
+    const validPosterTypes = ['wish', 'cta', 'awareness'];
+    if (!validPosterTypes.includes(posterType)) {
+      throw new GenerationValidationError(
+        `Invalid poster type: ${posterType}. Must be one of: ${validPosterTypes.join(', ')}`,
+        'posterType',
+        posterType
+      );
+    }
+
     // Validate user exists and has access to profile
     const profile = await BusinessProfile.getProfileByIdForUser(
       profileId,

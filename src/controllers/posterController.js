@@ -22,7 +22,8 @@ class PosterController {
         templateId,
         aiProvider = { llm: 'openai', diffusion: 'openai' },
         priority = 'normal',
-        creditsRequired = 1
+        creditsRequired = 1,
+        posterType = 'wish'
       } = req.body;
 
       // Validate required fields
@@ -46,7 +47,8 @@ class PosterController {
         templateId,
         aiProvider,
         priority,
-        creditsRequired
+        creditsRequired,
+        posterType
       };
 
       const result = await this.generationService.createGenerationJob(jobData);
@@ -56,6 +58,7 @@ class PosterController {
         userId: actualUserId,
         profileId,
         templateId,
+        posterType,
         creditsReserved: creditsRequired
       });
 

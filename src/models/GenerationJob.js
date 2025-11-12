@@ -30,6 +30,15 @@ const generationJobSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Poster type
+    posterType: {
+      type: String,
+      enum: ["wish", "cta", "awareness"],
+      default: "wish",
+      required: true,
+      index: true,
+    },
+
     // Job status
     status: {
       type: String,
@@ -244,6 +253,7 @@ generationJobSchema.statics = {
       creditsReserved,
       aiProvider,
       priority = "normal",
+      posterType = "wish",
     } = jobData;
 
     return this.create({
@@ -253,6 +263,7 @@ generationJobSchema.statics = {
       creditsReserved,
       aiProvider,
       priority,
+      posterType,
       status: "pending",
     });
   },
