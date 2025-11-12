@@ -680,6 +680,100 @@ class UserService {
       );
     }
   }
+
+  /**
+   * Get business profile count for a user
+   * @param {string|ObjectId} userId - User ID
+   * @returns {Promise<Object>} Business profile count
+   */
+  async getUserBusinessProfileCount(userId) {
+    try {
+      const BusinessProfile = require('../models/BusinessProfile');
+      const count = await BusinessProfile.countDocuments({ 
+        userId: userId,
+        isDeleted: { $ne: true }
+      });
+      
+      logger.info('Retrieved business profile count', {
+        userId,
+        count
+      });
+
+      return {
+        success: true,
+        count
+      };
+
+    } catch (error) {
+      logger.error('Error getting business profile count', {
+        userId,
+        error: error.message
+      });
+      throw new UserOperationError(
+        `Failed to get business profile count: ${error.message}`,
+        'getUserBusinessProfileCount',
+        userId
+      );
+    }
+  }
+
+  /**
+   * Get user's plan details (subscription and limits)
+   * @param {string|ObjectId} userId - User ID
+   * @returns {Promise<Object>} Plan details with limits and tier
+   */
+  async getUserPlanDetails(userId) {
+    try {
+      const Subscription = require('../models/Subscription');
+      
+      // Get user's active subscription with populated plan
+      const subscription = await Subscription.getUserActiveSubscription(userId);
+      
+      // Default to free plan if no active subscription
+      if (!subscription || !subscription.planId) {
+        logger.info('No active subscription found, returning free plan defaults', {
+          userId
+        });
+        
+        return {
+          success: true,
+          plan: 'Free',
+          tier: 'free',
+          brandsLimit: 1
+        };
+      }
+
+      const plan = subscription.planId;
+      
+      logger.info('Retrieved user plan details', {
+        userId,
+        planName: plan.name,
+        tier: plan.tier,
+        brandsLimit: plan.features?.businessProfiles?.limit
+      });
+
+      return {
+        success: true,
+        plan: plan.name,
+        tier: plan.tier,
+        brandsLimit: plan.features?.businessProfiles?.limit || 1
+      };
+
+    } catch (error) {
+      logger.error('Error getting user plan details', {
+        userId,
+        error: error.message
+      });
+      
+      // Return free plan defaults on error
+      return {
+        success: true,
+        plan: 'Free',
+        tier: 'free',
+        brandsLimit: 1
+      };
+    }
+  }
 }
 
 // Export error classes for use in other modules
