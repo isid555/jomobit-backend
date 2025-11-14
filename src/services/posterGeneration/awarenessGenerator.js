@@ -181,20 +181,16 @@ class AwarenessPosterGenerator extends BasePosterGenerator {
      */
     async generateCopyAndVisuals(profile, templateMetadata, selectedConcept) {
         const systemPrompt = `You are a creative director specializing in brand awareness campaigns.
-
-Generate copy and visual description for an awareness poster based on the selected concept.
-
-The copy should be inspirational, story-driven, and value-focused.
-The visual description should be detailed, cinematic, and emotionally resonant.
-
+Direct a scene related to the brand and festive based on the provided concept. The scene must evoke the emotions of the viewers related to festive and brand essence.
+The copy should be inspirational, story-driven, and value-focused. The visual description should be detailed, cinematic, and emotionally resonant. Also generate copywriting that is catchy, festive moody, includes brand essence and make the readers feel the meaning portrayed by the scene.
+A reference template is also passed to the diffusion model as base inspiration for the final poster. You'll be provided the metadata of the template so you can use required elements from the templates (symbols, motifs, copy, patterns, visuals, etc) to include in the scene. The elements must be chosen carefully and not forced. Everything should be logical, aligned and beautifully crafted.
 Template should be softly blended (weight 0.5-0.65) - natural and logical integration.
-
 Respond in JSON format:
 {
   "copy": {
-    "headline": "...",
-    "subheadline": "...",
-    "tagline": "..."
+    "headline": "3-5 words max",
+    "subheadline": "4-8 words max",
+    "tagline": "a suitable catchy tagline suited to the scene and festival (4-6 words max)"
   },
   "visual_description": "Detailed visual description..."
 }`;
@@ -205,7 +201,7 @@ Festival: ${templateMetadata.festival_name}
 
 Selected Concept:
 ${selectedConcept.concept}
-
+Template Composition: ${JSON.stringify(templateMetadata.composition_guidelines, null)}
 Template Style: ${templateMetadata.poster_design_metadata.style_and_aesthetic.aesthetic_keywords.join(', ')}
 
 Generate copy and visual description:`;
@@ -256,9 +252,12 @@ Generate the final prompt:`;
      * @returns {string} System prompt
      */
     getFinalPromptSystemPrompt(niche) {
-        let basePrompt = `You are an expert prompt engineer for diffusion models.
-Generate a detailed, cinematic prompt for an awareness poster.
-Focus on emotion, storytelling, and brand values.`;
+        let basePrompt = `
+        Poster Type: Brand Awareness Poster
+        - You'll be provided with the visual description and copywriting
+        - The typography must suit the emotion and festive tone.
+        `
+        basePrompt = this.enhanceSystemPrompt(basePrompt);
 
         if (niche !== 'other') {
             basePrompt += `\n\nNICHE-SPECIFIC GUIDELINES for ${niche.toUpperCase()}:

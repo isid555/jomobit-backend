@@ -7,7 +7,7 @@ const LLM_MODELS = {
     // Vision tasks - Requires vision-capable models
     TEMPLATE_METADATA_EXTRACTION: {
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         temperature: 0.3,
         maxTokens: 2000,
         description: 'Extract structured metadata from template images'
@@ -16,7 +16,7 @@ const LLM_MODELS = {
     // Creative tasks - High quality models
     CONCEPT_GENERATION: {
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         temperature: 0.8,
         maxTokens: 1500,
         description: 'Generate creative poster concepts'
@@ -57,7 +57,7 @@ const LLM_MODELS = {
 
     COPY_GENERATION: {
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         temperature: 0.7,
         maxTokens: 500,
         description: 'Generate poster copywriting'
