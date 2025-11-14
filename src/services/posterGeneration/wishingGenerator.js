@@ -106,6 +106,41 @@ class WishingPosterGenerator extends BasePosterGenerator {
     for watches brands- collection of watches, single watch, same watch model but two different colors etc. Similar applies to shoes, sunglasses, electronics, etc.
     for object selling brands- collection of objects, single object, etc
 
+    Example: for collections posters (if products are fashion):
+    products: [
+    'Shirts', 'T-shirts', 'Polo shirts', 'Hoodies', 'Sweatshirts', 'Tank tops'
+    ]
+    or
+    products: [
+    'Jeans', 'Trousers', 'Cargo pants', 'Joggers', 'Shorts'
+    ]
+
+    for combo posters (if products are fashion):
+    products: [
+    'Shirt', 'Jeans'
+    ]
+    or (if products are wearables):
+    products: [
+    'Watch', 'Sunglasses'
+    ]
+    or
+    products: [
+    'Shirt', 'Watch'
+    ]
+
+    for single product posters (if products are fashion):
+    products: [
+    'Shirt'
+    ]
+    or (if products are wearables):
+    products: [
+    'Watch'
+    ]
+    or  (if products are wearables):
+    products: [
+    'Sunglasses'
+    ]
+
     Respond with either TYPE_A (include products) or TYPE_B (no products) as type
     Required output schema:
     {
@@ -257,23 +292,20 @@ class WishingPosterGenerator extends BasePosterGenerator {
    */
   async generateProductDescription(profile, templateMetadata, selectedProducts) {
     const systemPrompt = `You are a product stylist and visual merchandiser. You also expertize in prompt engineering for diffusion models.
-    Given the list of brand product/products you need to generate prompts to generate high quality mockup images of the products. The product must be relevant to the
-    brand personality and niche. If product description is provided then it must be used in the prompt.
+    Given the list of brand product/products you need to generate description of the products. The product must be relevant to the brand personality and niche. If product description is provided then it must be used in the final description.
 
     Guidelines for image generation:
     - Focus on high quality and realistic images
     - Use real world products and product photography
     - Avoid hallucinated and abstract
-    - Simple Plain/gradient background for better contrast between product and background
-    - It could be a single product, a combo, or a collection. For combo/collection, all the product should be in the single image properly aligned
-      and placed. Each product should be clearly visible.
-    - If it's a single product then include different angles of the same product in the same image.
-    - For collections, include a single image (front facing) for each product in the collection aligned properly.
-    - For combos, include front facing and back facing images in the combo aligned properly.
-    - Avoid disorientation of products, silhouettes, shadowed products, etc. The whole product should be clearly visible.
-    - If the brand is a service/agency based brand then generate visuals or objects that symbolizes the brand tailored to the services they sell.
-    - For fashion brands, generate visuals of real fabrics, textures, brands product style clothes, real clothes. No human models/mannequins.
-    - For object selling brands [jewellery, watches, sunglasses, etc], generate visuals of real objects. No mannequins, use real human models if required wearing/holding the product.
+    - It could be a single product, a combo, or a collection.
+    ex (for fashion brand, similar analogys apply to other niches): if single product for a fashion brand like shirt then generate rich description of the shirt, its color, fabric, style, etc.
+    if combo of a fashion brand like shirt and jeans then generate rich description of both the shirt and jeans, its color, fabric, style, etc.
+    for collections, no need to generate detailed description of each product but must specify the color, style, fabric, etc and how they should be aligned together to place everything in the collection for a fashion campaign poster.
+    - If the brand is a service/agency based brand then describe visuals or objects that symbolizes the brand tailored to the services they sell.
+    - For fashion brands, describe visuals of real fabrics, textures, brands product style clothes, real clothes.
+    - For object selling brands [jewellery, watches, sunglasses, etc], describe visuals of real objects.
+    - No mannequins, use real human models if required wearing/holding the product.
 
     Consider:
     - Product selection (single, combo, or collection)
@@ -294,7 +326,7 @@ class WishingPosterGenerator extends BasePosterGenerator {
     Template Color Palette: ${JSON.stringify(templateMetadata.poster_design_metadata.style_and_aesthetic.color_palette)}
     Target Style: ${JSON.stringify(templateMetadata.poster_design_metadata.style_and_aesthetic, null)}
 
-    Generate prompts to generate mockup images of the SELECTED products:`;
+    Generate description of the SELECTED products:`;
 
     return await llmService.call(
       "PRODUCT_DESCRIPTION",
@@ -403,12 +435,12 @@ class WishingPosterGenerator extends BasePosterGenerator {
       ` : `
         - The template should be entirely used for the wishing poster. Entire reference template will be used as the poster.
         - The template may/may not contain any text. Your prompt should blend the provided copy in the template tailored to the festive tone and template visuals.
-        - If the template already has text in it then instruct to replace the text with the provided copy in the same typography style with proper alignment and layout.
-        - The main greeting headline must look elegant and decorative depending on the festive mood. Use invitation card headline type style for the greeting with lines, patterns to make the headline more appealing.
+        - If the template already has text in it then instruct to replace the text with the provided copy in the same typography style of the template text with proper alignment and layout.
       `
     }
 
     Copy Guidelines:
+    - The main greeting headline and quote must look elegant, clearly readable and decorative depending on the festive mood. Use invitation card inspired typography style for the greeting with lines, patterns to make the headline more appealing. The quote must be elegantly written to evoke the emotions of the festival. The copy must be of appropriate size so clearly readable.
     - Mention the style of the copy. Don't hard mention the font, color, size of the texts instead provide real world inspired style so the diffusion gets room for creative blending of the text and poster. ex: for a street style, genz poster instead of describing font, color and size we can mention 'Graffiti-style bold fonts, spray paint aesthetic, Street art aesthetic text treatment, Modern, edgy, rebellious fonts throughout, Urban typography style with attitude, Contemporary font treatments'
     `;
     basePrompt = this.enhanceSystemPrompt(basePrompt);

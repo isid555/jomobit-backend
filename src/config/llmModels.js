@@ -32,7 +32,7 @@ const LLM_MODELS = {
 
     FINAL_PROMPT_GENERATION: {
         provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         temperature: 0.7,
         maxTokens: 2000,
         description: 'Build final diffusion model prompt'

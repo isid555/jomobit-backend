@@ -136,11 +136,13 @@ Guidelines for Poster Design:
 2. The poster needs to have a concept/message that resonates with the brand and the festival. The concept should be creative, emotional and captivating.
 3. The visuals should have composition (visuals arranged in proper symmetry) and feel cinematic and premium. The visual direction should be creative and engaging.
 4. The poster will be inspired from the user given template. The template will be used as a base for the poster and your concept will be added on top of the template. Specify to use the given template as a base.
+5. Avoid mannequin and use human models if product needs to be holded or worn by the user.
 
 Guidelines for Layout & Copywriting:
 1. The poster will have copywritings, call-to-actions and brand logo (if logo is not provided then it won't be included).It must have clean layout, no overlapping with main visuals, and typography matches the brand's target style and festive mood.
-3. It should follow a heirarchy of importance and should be aligned with the visual direction and tone of the poster.
-4. Layout should be follow the real world desgining principles and rules that best fit for the brand category.
+2. It should follow a heirarchy of importance and should be aligned with the visual direction and tone of the poster.
+3. Layout should be follow the real world desgining principles and rules that best fit for the brand category.
+4. The copywriting must be clearly readable and in costrast with the background colors.
 
 Guidelines for Prompting:
 1. Prompt should describe the main subject, composition, mood, style, background description, motifs, elements, colors, lighting, atmosphere, volumetrics, layout for copywritings, call-to-actions and brand logo.
