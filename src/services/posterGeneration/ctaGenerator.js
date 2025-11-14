@@ -66,6 +66,13 @@ class CTAPosterGenerator extends BasePosterGenerator {
             selectedConcept
         );
 
+        // Generate model and product images (multi-stage)
+        const intermediateImages = await this.generateIntermediateImages(
+            job,
+            subjects,
+            niche
+        );
+
         // Build final prompt
         const finalPrompt = await this.buildFinalPrompt(
             job,
@@ -73,7 +80,7 @@ class CTAPosterGenerator extends BasePosterGenerator {
             templateMetadata,
             selectedConcept,
             copy,
-            null, // intermediateImages not yet generated
+            intermediateImages, // intermediateImages not yet generated
             useTemplate
         );
 
@@ -82,13 +89,6 @@ class CTAPosterGenerator extends BasePosterGenerator {
 
         // Start image timing (includes model, product, and final poster)
         this.startImageTiming();
-
-        // Generate model and product images (multi-stage)
-        const intermediateImages = await this.generateIntermediateImages(
-            job,
-            subjects,
-            niche
-        );
 
         // Generate final poster
         const result = await this.generatePoster(
@@ -326,7 +326,8 @@ Analyze and split into subjects:`;
         const parameters = {
             size: '1024x1024',
             quality: 'high',
-            format: 'png'
+            format: 'png',
+            folder: 'assets/model'
         };
 
         // Try to generate with retry
@@ -335,22 +336,22 @@ Analyze and split into subjects:`;
                 const result = await diffusionProvider.generateImage(enhancedPrompt, parameters);
 
                 // Upload to ImageKit under assets/model/
-                const fileName = `model_${job._id}_${Date.now()}.png`;
-                const imageKitResult = await this.imageKit.uploadImage(
-                    result.imageUrl,
-                    fileName,
-                    'assets/model'
-                );
+                // const fileName = `model_${job._id}_${Date.now()}.png`;
+                // const imageKitResult = await this.imageKit.uploadImage(
+                //     result.imageUrl,
+                //     fileName,
+                //     'assets/model'
+                // );
 
                 logger.info('Model image generated successfully', {
                     jobId: job._id,
-                    imageUrl: imageKitResult.url
+                    imageUrl: result.imageUrl
                 });
 
                 return {
                     type: 'image',
-                    url: imageKitResult.url,
-                    thumbnailUrl: imageKitResult.thumbnailUrl
+                    url: result.imageUrl,
+                    thumbnailUrl: result.thumbnailUrl
                 };
             } catch (error) {
                 logger.warn('Model image generation attempt failed', {
@@ -391,7 +392,8 @@ Analyze and split into subjects:`;
         const parameters = {
             size: '1024x1024',
             quality: 'high',
-            format: 'png'
+            format: 'png',
+            folder: 'assets/product'
         };
 
         // Try to generate with retry
@@ -400,22 +402,22 @@ Analyze and split into subjects:`;
                 const result = await diffusionProvider.generateImage(enhancedPrompt, parameters);
 
                 // Upload to ImageKit under assets/product/
-                const fileName = `product_${job._id}_${Date.now()}.png`;
-                const imageKitResult = await this.imageKit.uploadImage(
-                    result.imageUrl,
-                    fileName,
-                    'assets/product'
-                );
+                // const fileName = `product_${job._id}_${Date.now()}.png`;
+                // const imageKitResult = await this.imageKit.uploadImage(
+                //     result.imageUrl,
+                //     fileName,
+                //     'assets/product'
+                // );
 
                 logger.info('Product image generated successfully', {
                     jobId: job._id,
-                    imageUrl: imageKitResult.url
+                    imageUrl: result.imageUrl
                 });
 
                 return {
                     type: 'image',
-                    url: imageKitResult.url,
-                    thumbnailUrl: imageKitResult.thumbnailUrl
+                    url: result.imageUrl,
+                    thumbnailUrl: result.thumbnailUrl
                 };
             } catch (error) {
                 logger.warn('Product image generation attempt failed', {
@@ -504,9 +506,8 @@ Copy should be:
 Respond in JSON format:
 {
   "headline": "Strong offer or benefit statement",
-  "subheadline": "Supporting details or urgency message",
-  "cta": "Clear action button text",
-  "microcopy": "Additional details or incentives (optional)"
+  "tagline": "Catchy tagline focussing on brand & product",
+  "cta": "Clear action button text"
 }`;
 
         const userPrompt = `Brand: ${profile.name}
@@ -534,7 +535,8 @@ Generate CTA copy:`;
      * @returns {Promise<string>} Final prompt
      */
     async buildFinalPrompt(job, niche, templateMetadata, selectedConcept, copy, intermediateImages, useTemplate) {
-        const systemPrompt = this.getFinalPromptSystemPrompt(niche);
+        let systemPrompt = this.getFinalPromptSystemPrompt(niche);
+        systemPrompt = this.enhanceSystemPrompt(systemPrompt);
 
         // Build content based on what we have
         let modelContent = '';

@@ -65,7 +65,7 @@ class FalAIDiffusionProvider extends DiffusionProvider {
 
       // Upload all generated images to ImageKit in parallel for efficiency
       const uploadPromises = generatedImages.map((image) =>
-        this.saveImage(image.url)
+        this.saveImage(image.url, validatedParams.folder)
       );
 
       const uploadedImages = await Promise.all(uploadPromises);
@@ -92,12 +92,13 @@ class FalAIDiffusionProvider extends DiffusionProvider {
   /**
    * Uploads an image from a URL to ImageKit.
    * @param {string} imageUrl - The URL of the generated image to upload.
+   * @param {string} [folder] - Optional folder name. If not provided, uses ImageKit's defaultFolder.
    * @returns {Promise<any>} A promise that resolves to the ImageKit upload response.
    */
-  async saveImage(imageUrl) {
+  async saveImage(imageUrl, folder) {
     const fileName = `jomobit_generation_${Date.now()}`;
     // The ImageKitService is expected to handle uploads directly from a URL
-    return this.imageKit.uploadImage(imageUrl, fileName);
+    return this.imageKit.uploadImage(imageUrl, fileName, folder);
   }
 
   /**
@@ -162,6 +163,7 @@ class FalAIDiffusionProvider extends DiffusionProvider {
       output_format: parameters.output_format || "jpeg",
       num_images: parameters.num_images || 1,
       model: "fal-ai/nano-banana", // Default to the generation model
+      folder: parameters.folder || undefined, // Optional folder, undefined will use ImageKit's default
     };
 
     // 1. Validate image_urls to determine if we should use the 'edit' model
