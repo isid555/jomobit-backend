@@ -12,7 +12,7 @@ const businessProfileSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  
+
   // Business name (required)
   name: {
     type: String,
@@ -21,7 +21,7 @@ const businessProfileSchema = new mongoose.Schema({
     maxlength: 100,
     index: true
   },
-  
+
   // Business tagline/slogan (required, editable)
   tagline: {
     type: String,
@@ -29,7 +29,7 @@ const businessProfileSchema = new mongoose.Schema({
     trim: true,
     maxlength: 200
   },
-  
+
   // Business description (required)
   description: {
     type: String,
@@ -37,13 +37,13 @@ const businessProfileSchema = new mongoose.Schema({
     trim: true,
     maxlength: 1000
   },
-  
+
   // Business logo (ImageKit URL)
   logo: {
     type: String,
     trim: true
   },
-  
+
   // Color palette (editable)
   colorPalette: [{
     name: {
@@ -57,7 +57,7 @@ const businessProfileSchema = new mongoose.Schema({
       match: /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/
     }
   }],
-  
+
   // Typography settings (editable)
   typography: {
     primary: {
@@ -71,14 +71,23 @@ const businessProfileSchema = new mongoose.Schema({
       default: 'Helvetica'
     }
   },
-  
+
   // Products/services (editable)
   products: [{
     type: String,
     trim: true,
     maxlength: 100
   }],
-  
+
+  // Business niche (auto-detected or manually set)
+  niche: {
+    type: String,
+    required: false,
+    trim: true,
+    lowercase: true,
+    index: true
+  },
+
   // Business address
   address: {
     street: {
@@ -107,21 +116,21 @@ const businessProfileSchema = new mongoose.Schema({
       maxlength: 20
     }
   },
-  
+
   // Profile status
   isActive: {
     type: Boolean,
     default: true,
     index: true
   },
-  
+
   // Timestamps
   createdAt: {
     type: Date,
     default: Date.now,
     index: true
   },
-  
+
   updatedAt: {
     type: Date,
     default: Date.now
@@ -129,7 +138,7 @@ const businessProfileSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   toJSON: {
-    transform: function(doc, ret) {
+    transform: function (doc, ret) {
       delete ret.__v;
       return ret;
     }
@@ -137,7 +146,7 @@ const businessProfileSchema = new mongoose.Schema({
 });
 
 // Pre-save middleware to update timestamps
-businessProfileSchema.pre('save', function(next) {
+businessProfileSchema.pre('save', function (next) {
   if (this.isModified() && !this.isNew) {
     this.updatedAt = new Date();
   }
@@ -246,10 +255,10 @@ businessProfileSchema.statics = {
       isActive: true,
       $text: { $search: searchText }
     })
-    .sort({ score: { $meta: 'textScore' } })
-    .limit(limit)
-    .skip(skip)
-    .exec();
+      .sort({ score: { $meta: 'textScore' } })
+      .limit(limit)
+      .skip(skip)
+      .exec();
   },
 
   /**
@@ -266,9 +275,9 @@ businessProfileSchema.statics = {
       },
       isActive: true
     })
-    .populate('userId', 'email metadata.name')
-    .sort({ createdAt: -1 })
-    .exec();
+      .populate('userId', 'email metadata.name')
+      .sort({ createdAt: -1 })
+      .exec();
   },
 
   /**
@@ -309,7 +318,7 @@ businessProfileSchema.methods = {
    */
   async updateEditableFields(updates) {
     const editableFields = ['tagline', 'products', 'colorPalette', 'typography'];
-    
+
     editableFields.forEach(field => {
       if (updates[field] !== undefined) {
         this[field] = updates[field];
@@ -387,7 +396,7 @@ businessProfileSchema.methods = {
    */
   getFormattedAddress() {
     const parts = [];
-    
+
     if (this.address.street) parts.push(this.address.street);
     if (this.address.city) parts.push(this.address.city);
     if (this.address.state) parts.push(this.address.state);

@@ -3,26 +3,27 @@ const BusinessProfile = require('../models/BusinessProfile');
 const Template = require('../models/Template');
 const { CreditService } = require('./creditService');
 const { providerFactory } = require('./aiProviders/providerFactory');
+const posterGenerationService = require('./posterGeneration');
 const logger = require('../utils/logger');
 
 /**
  * Custom error classes for generation operations
  */
 class GenerationError extends Error {
-    constructor(message, code, details = {}) {
-        super(message);
-        this.name = 'GenerationError';
-        this.code = code;
-        this.details = details;
-    }
+  constructor(message, code, details = {}) {
+    super(message);
+    this.name = 'GenerationError';
+    this.code = code;
+    this.details = details;
+  }
 }
 
 class GenerationValidationError extends GenerationError {
-    constructor(message, field, value) {
-        super(message, 'VALIDATION_ERROR', { field, value });
-        this.field = field;
-        this.value = value;
-    }
+  constructor(message, field, value) {
+    super(message, 'VALIDATION_ERROR', { field, value });
+    this.field = field;
+    this.value = value;
+  }
 }
 
 /**
@@ -197,33 +198,36 @@ class GenerationService {
       // Start processing
       await job.startProcessing();
 
-      // Step 1: Generate prompt using LLM provider
-      const promptResult = await this.generatePrompt(job);
-      await job.updatePrompt(promptResult.prompt, promptResult.parameters);
+      // NEW: Use poster generation service based on posterType
+      const result = await posterGenerationService.generatePoster(job);
 
-      console.log(promptResult);
-
-      // Step 2: Generate image using diffusion provider
-      const imageResult = await this.generateImage(job, promptResult.prompt);
-
-      // Update job with external job ID for webhook tracking
-      if (imageResult.externalJobId) {
-        job.externalJobId = imageResult.externalJobId;
-        job.result.imageUrl = imageResult.imageUrl;
-        job.result.metadata = imageResult.metadata;
-        job.status = imageResult.status;
-        await job.save();
+      // Update job with prompt data
+      if (result.prompt && result.promptParameters) {
+        await job.updatePrompt(result.prompt, result.promptParameters);
       }
+
+      // Update job with timing
+      if (result.timing) {
+        job.timing = result.timing;
+      }
+
+      // Update job with result
+      job.externalJobId = result.jobId;
+      job.result.imageUrl = result.imageUrl;
+      job.result.metadata = result.metadata;
+      job.status = result.status;
+      await job.save();
 
       logger.info("Generation job processing completed", {
         jobId,
-        status: imageResult.status,
-        promptGenerated: !!promptResult.prompt,
-        externalJobId: imageResult.externalJobId,
-        provider: job.aiProvider,
+        status: result.status,
+        externalJobId: result.jobId,
+        posterType: job.posterType,
+        hasPrompt: !!result.prompt,
+        timing: result.timing
       });
 
-      await this.handleGenerationSuccess(job, imageResult);
+      await this.handleGenerationSuccess(job, result);
     } catch (error) {
       logger.error("Error processing generation job", {
         jobId,
@@ -333,7 +337,7 @@ class GenerationService {
 
       const { image: templateUrl, ...restOfTemplate } = templateParameters;
       const { logo: logoUrl, ...restOfBrand } = brandParameter;
-      
+
       const parameters = {
         ...restOfTemplate,
         ...restOfBrand,
@@ -708,8 +712,7 @@ class GenerationService {
 
     if (!availableLLM.includes(aiProvider.llm)) {
       throw new GenerationValidationError(
-        `Invalid LLM provider: ${
-          aiProvider.llm
+        `Invalid LLM provider: ${aiProvider.llm
         }. Available: ${availableLLM.join(", ")}`,
         "aiProvider.llm",
         aiProvider.llm
@@ -722,8 +725,7 @@ class GenerationService {
 
     if (!availableDiffusion.includes(aiProvider.diffusion)) {
       throw new GenerationValidationError(
-        `Invalid diffusion provider: ${
-          aiProvider.diffusion
+        `Invalid diffusion provider: ${aiProvider.diffusion
         }. Available: ${availableDiffusion.join(", ")}`,
         "aiProvider.diffusion",
         aiProvider.diffusion
@@ -772,7 +774,7 @@ class GenerationService {
    */
   prepareImageBrandParameters(profile) {
     const parameters = {
-        logo: profile.logo || null
+      logo: profile.logo || null
     };
 
     // Add brand-specific parameters
@@ -932,7 +934,7 @@ class GenerationService {
 }
 
 module.exports = {
-    GenerationService,
-    GenerationError,
-    GenerationValidationError
+  GenerationService,
+  GenerationError,
+  GenerationValidationError
 };
