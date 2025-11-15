@@ -164,25 +164,35 @@ class WishingPosterGenerator extends BasePosterGenerator {
 
     Should products be included? If yes, which products?`;
 
-    const response = await llmService.call(
-      "TYPE_DECISION",
-      systemPrompt,
-      userPrompt
-    );
+    try {
+      const response = await llmService.call(
+        "TYPE_DECISION",
+        systemPrompt,
+        userPrompt
+      );
 
-    // Parse JSON response
-    const decision = parseJSONObject(response, 'wishing_type_decision');
+      // Parse JSON response
+      const decision = parseJSONObject(response, "wishing_type_decision");
 
-    logger.info('Type decision made', {
-      type: decision.type,
-      selectedProducts: decision.products,
-      productCount: decision.products?.length || 0
-    });
+      logger.info("Type decision made", {
+        type: decision.type,
+        selectedProducts: decision.products,
+        productCount: decision.products?.length || 0,
+      });
 
-    return {
-      type: decision.type,
-      products: decision.products || []
-    };
+      return {
+        type: decision.type,
+        products: decision.products || [],
+      };
+    } catch (err) {
+      logger.error("Failed to decide type", { error: err.message });
+      logger.info("Falling back to TYPE_B");
+    } finally {
+      return {
+        type: "TYPE_B",
+        products: [],
+      };
+    }
   }
 
   /**
