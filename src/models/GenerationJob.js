@@ -76,11 +76,11 @@ const generationJobSchema = new mongoose.Schema(
       },
       diffusionModel: {
         type: String,
-        enum: ["nano_banana", "nano_banana_pro", "seeddream_4_5", "gpt_1_5_image"],
+        enum: ["nano_banana", "nano_banana_pro", "seeddream_4_5", "gpt_1_5_image", "midjourney"],
         required: true,
         index: true
       },
-      modelProvider: {
+      diffusionProvider: {
         type: String,
         enum: ["fal-ai", "legnext"],
         required: true,
@@ -261,9 +261,8 @@ generationJobSchema.statics = {
       profileId,
       templateId,
       creditsReserved,
-      aiProvider,
       priority = "normal",
-      posterType = "wish",
+      generationContext
     } = jobData;
 
     return this.create({
@@ -271,10 +270,8 @@ generationJobSchema.statics = {
       profileId,
       templateId,
       creditsReserved,
-      aiProvider,
       priority,
-      posterType,
-      status: "pending",
+      generationContext
     });
   },
 

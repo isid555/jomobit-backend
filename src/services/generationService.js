@@ -64,19 +64,17 @@ class GenerationService {
       userId,
       profileId,
       templateId,
-      aiProvider = { llm: "openai", diffusion: "openai" },
       priority = "normal",
       creditsRequired = this.defaultCreditsRequired,
-      posterType = "wish",
+      generationContext,
     } = jobData;
 
     logger.info("Creating generation job", {
       userId,
       profileId,
       templateId,
-      aiProvider,
       creditsRequired,
-      posterType,
+      generationContext,
     });
 
     try {
@@ -85,21 +83,20 @@ class GenerationService {
         userId,
         profileId,
         templateId,
-        aiProvider,
-        posterType
+        generationContext
       );
 
-      logger.info("AI Providers: ", aiProvider);
+      logger.info(`Diffusion Model: ${generationContext.diffusionModel}`);
+      logger.info(`Diffusion Provider: ${generationContext.diffusionProvider}`);
 
       // Reserve credits before creating job
       const job = await GenerationJob.createJob({
         userId,
         profileId,
         templateId,
-        creditsReserved: creditsRequired,
-        aiProvider,
         priority,
-        posterType,
+        creditsReserved: creditsRequired,
+        generationContext,
       });
 
       // Reserve credits with job ID
@@ -109,10 +106,9 @@ class GenerationService {
         job._id.toString(),
         {
           jobType: "poster_generation",
-          aiProvider,
           profileId,
           templateId,
-          posterType,
+          generationContext,
         }
       );
 
@@ -121,19 +117,19 @@ class GenerationService {
         userId,
         creditsReserved: creditsRequired,
         availableCredits: creditReservation.availableCredits,
-        posterType,
+        generationContext,
       });
 
       // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
-      setImmediate(() => {
-        this.processGenerationJob(job._id.toString()).catch((error) => {
-          logger.error("Background processing failed", {
-            jobId: job._id,
-            error: error.message,
-            stack: error.stack,
-          });
-        });
-      });
+      // setImmediate(() => {
+      //   this.processGenerationJob(job._id.toString()).catch((error) => {
+      //     logger.error("Background processing failed", {
+      //       jobId: job._id,
+      //       error: error.message,
+      //       stack: error.stack,
+      //     });
+      //   });
+      // });
 
       return {
         success: true,
@@ -672,10 +668,10 @@ class GenerationService {
    * @param {string} posterType - Poster type
    * @returns {Promise<void>} Validation result
    */
-  async validateGenerationRequest(userId, profileId, templateId, aiProvider, posterType) {
+  async validateGenerationRequest(userId, profileId, templateId, generationContext) {
     // Validate posterType
     const validPosterTypes = ['wish', 'cta', 'awareness'];
-    if (!validPosterTypes.includes(posterType)) {
+    if (!validPosterTypes.includes(generationContext.posterType)) {
       throw new GenerationValidationError(
         `Invalid poster type: ${posterType}. Must be one of: ${validPosterTypes.join(', ')}`,
         'posterType',
@@ -703,32 +699,6 @@ class GenerationService {
         "Template not found or inactive",
         "templateId",
         templateId
-      );
-    }
-
-    // Validate AI providers
-    const availableLLM = providerFactory.getAvailableLLMProviders();
-    const availableDiffusion = providerFactory.getAvailableDiffusionProviders();
-
-    if (!availableLLM.includes(aiProvider.llm)) {
-      throw new GenerationValidationError(
-        `Invalid LLM provider: ${aiProvider.llm
-        }. Available: ${availableLLM.join(", ")}`,
-        "aiProvider.llm",
-        aiProvider.llm
-      );
-    }
-
-    logger.info("Available Diffusion Provider: ", availableDiffusion);
-    logger.info("Given provider: ", aiProvider.diffusion);
-    logger.info("-----------xxxxxx----------------------");
-
-    if (!availableDiffusion.includes(aiProvider.diffusion)) {
-      throw new GenerationValidationError(
-        `Invalid diffusion provider: ${aiProvider.diffusion
-        }. Available: ${availableDiffusion.join(", ")}`,
-        "aiProvider.diffusion",
-        aiProvider.diffusion
       );
     }
 

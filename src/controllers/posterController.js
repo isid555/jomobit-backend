@@ -1,4 +1,5 @@
 const { GenerationService } = require('../services/generationService');
+const DiffusionModelConfig = require('../services/n8n/diffusionConfigs');
 const logger = require('../utils/logger');
 
 /**
@@ -8,6 +9,7 @@ const logger = require('../utils/logger');
 class PosterController {
   constructor() {
     this.generationService = new GenerationService();
+    this.diffusionModelConfig = new DiffusionModelConfig();
   }
 
   /**
@@ -20,10 +22,12 @@ class PosterController {
       const {
         profileId,
         templateId,
-        aiProvider = { llm: 'openai', diffusion: 'openai' },
         priority = 'normal',
         creditsRequired = 1,
-        posterType = 'wish'
+        posterType = 'wish',
+        generationParameters = {
+          aspectRatio: "1:1"
+        }
       } = req.body;
 
       // Validate required fields
@@ -41,15 +45,29 @@ class PosterController {
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
+      // Set Diffusion Model for generation
+      const diffusionModel = 'midjourney';
+
+      // Validate Generation Parameters
+      const generationParams = this.diffusionModelConfig.validateModelConfig(diffusionModel, generationParameters);
+      
+      let generationContext = {
+        posterType,
+        diffusionModel,
+        diffusionProvider: this.diffusionModelConfig.getProviderForModel(diffusionModel),
+        posterSpecs: generationParams
+      }
+
       const jobData = {
         userId: actualUserId,
         profileId,
         templateId,
-        aiProvider,
         priority,
         creditsRequired,
-        posterType
+        generationContext
       };
+
+      console.log(jobData);
 
       const result = await this.generationService.createGenerationJob(jobData);
 
@@ -58,7 +76,7 @@ class PosterController {
         userId: actualUserId,
         profileId,
         templateId,
-        posterType,
+        generationContext,
         creditsReserved: creditsRequired
       });
 
