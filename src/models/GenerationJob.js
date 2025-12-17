@@ -30,20 +30,32 @@ const generationJobSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Poster type
-    posterType: {
+    // Job priority (for queue processing)
+    priority: {
       type: String,
-      enum: ["wish", "cta", "awareness"],
-      default: "wish",
-      required: true,
+      enum: ["low", "normal", "high"],
+      default: "normal",
       index: true,
     },
 
     // Job status
     status: {
       type: String,
-      enum: ["pending", "processing", "completed", "failed", "cancelled"],
-      default: "pending",
+      enum: [
+        "pending",
+        "queued",
+        "processing",
+        "completed",
+        "failed",
+        "cancelled",
+      ],
+      default: "queued",
+      index: true,
+    },
+
+    // External service job tracking
+    externalJobId: {
+      type: String,
       index: true,
     },
 
@@ -54,34 +66,47 @@ const generationJobSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // AI provider configuration
-    aiProvider: {
-      llm: {
+    // Full Generation Context
+    generationContext: {
+      posterType: {
         type: String,
+        enum: ["wish", "cta", "awareness"],
         required: true,
-        enum: ["openai", "gemini"],
-        index: true,
+        index: true
       },
-      diffusion: {
+      diffusionModel: {
         type: String,
+        enum: ["nano_banana", "nano_banana_pro", "seeddream_4_5", "gpt_1_5_image"],
         required: true,
-        enum: ["openai", "ideogram", "nano_banana"],
-        index: true,
+        index: true
       },
-    },
-
-    // Generated prompt information
-    prompt: {
-      generated: {
+      modelProvider: {
         type: String,
+        enum: ["fal-ai", "legnext"],
+        required: true,
+        index: true
       },
-      parameters: {
+      posterSpecs: {
         type: mongoose.Schema.Types.Mixed,
-        default: {},
+        required: true
       },
-      generatedAt: {
-        type: Date,
+      templateMetaId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'TemplateMeta',
       },
+      concept: {
+        type: mongoose.Schema.Types.Mixed,
+      },
+      copywriting: {
+        type: mongoose.Schema.Types.Mixed,
+      },
+      prompt: {
+        type: "String",
+        default: null
+      },
+      enahancementMeta: {
+        type: mongoose.Schema.Types.Mixed,
+      }
     },
 
     // Generation result
@@ -99,12 +124,6 @@ const generationJobSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.Mixed,
         default: {},
       },
-    },
-
-    // External service job tracking
-    externalJobId: {
-      type: String,
-      index: true,
     },
 
     // Webhook data from AI services
@@ -151,14 +170,6 @@ const generationJobSchema = new mongoose.Schema(
       default: 0,
       min: 0,
       max: 3,
-    },
-
-    // Job priority (for queue processing)
-    priority: {
-      type: String,
-      enum: ["low", "normal", "high"],
-      default: "normal",
-      index: true,
     },
 
     // Timestamps
