@@ -182,7 +182,8 @@ class GenerationService {
     logger.info("Starting generation workflow", { jobId });
     
     try {
-       await webhookTriggerApi.triggerGenerationWebhook(jobId);
+      const response = await webhookTriggerApi.triggerGenerationWebhook(jobId);
+      logger.info(`${response.message} - ${response.details}`);
     } catch (error) {
       logger.error("Error starting generation workflow", {
         jobId,

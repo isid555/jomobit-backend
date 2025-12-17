@@ -8,15 +8,13 @@ const webhookTriggerApi = {
    * @throws {Error} - If there is an error triggering the webhook.
    */
   triggerGenerationWebhook: async (jobId) => {
-    axiosClient
-      .post("/generate/poster", { jobId })
-      .then((response) => {
-        console.log("Webhook triggered successfully:", response.data);
-      })
-      .catch((error) => {
-        console.error("Error triggering webhook:", error);
-        throw error;
-      });
+    try {
+      const response = await axiosClient.post("/generate/poster", { jobId });
+      return response; // 👈 IMPORTANT
+    } catch (error) {
+      console.error("Error triggering webhook:", error);
+      throw error;
+    }
   },
 };
 

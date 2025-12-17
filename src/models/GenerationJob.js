@@ -539,6 +539,11 @@ generationJobSchema.methods = {
     return this.save();
   },
 
+  async updateStatus(status) {
+    this.status = status;
+    return this.save();
+  },
+
   /**
    * Update webhook data
    * @param {Object} data - Webhook data

@@ -559,6 +559,7 @@ class App {
     const webhookRoutes = require('./routes/webhooks');
     const adminRoutes = require('./routes/admin');
     const planRoutes = require('./routes/plan');
+    const n8nRoutes = require('./routes/n8n');
 
     // ============================================
     // 🔥 CRITICAL: Mount webhook routes FIRST
@@ -575,6 +576,7 @@ class App {
     this.app.use('/api/subscriptions', subscriptionRoutes);
     this.app.use('/api/plans', planRoutes);
     this.app.use('/api/admin', adminRoutes);
+    this.app.use('/api/n8n', n8nRoutes);
 
     // Default API endpoint
     this.app.use('/api', (req, res) => {
