@@ -1,0 +1,23 @@
+const axiosClient = require('./axiosClient');
+
+const webhookTriggerApi = {
+  /**
+   * Triggers the N8N generation webhook for a given job ID.
+   * @param {string} jobId - Unique generation job identifier.
+   * @returns {Promise<void>} - A promise that resolves when the webhook is triggered successfully.
+   * @throws {Error} - If there is an error triggering the webhook.
+   */
+  triggerGenerationWebhook: async (jobId) => {
+    axiosClient
+      .post("/generate/poster", { jobId })
+      .then((response) => {
+        console.log("Webhook triggered successfully:", response.data);
+      })
+      .catch((error) => {
+        console.error("Error triggering webhook:", error);
+        throw error;
+      });
+  },
+};
+
+module.exports = webhookTriggerApi;

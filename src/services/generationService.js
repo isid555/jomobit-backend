@@ -1,6 +1,7 @@
 const GenerationJob = require('../models/GenerationJob');
 const BusinessProfile = require('../models/BusinessProfile');
 const Template = require('../models/Template');
+const webhookTriggerApi = require("./n8n/webhookTriggerApi");
 const { CreditService } = require('./creditService');
 const { providerFactory } = require('./aiProviders/providerFactory');
 const posterGenerationService = require('./posterGeneration');
@@ -131,6 +132,17 @@ class GenerationService {
       //   });
       // });
 
+      // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
+      setImmediate(() => {
+        this.startGenerationWorkflow(job._id.toString()).catch((error) => {
+          logger.error("Background processing failed", {
+            jobId: job._id,
+            error: error.message,
+            stack: error.stack,
+          });
+        });
+      });
+
       return {
         success: true,
         job: job.getSummary(),
@@ -157,6 +169,26 @@ class GenerationService {
         );
       }
 
+      throw error;
+    }
+  }
+
+  /**
+   * Process a generation job through the AI pipeline
+   * @param {string|ObjectId} jobId - Generation job ID
+   * @returns {Promise<Object>} Processing result
+   */
+  async startGenerationWorkflow(jobId) {
+    logger.info("Starting generation workflow", { jobId });
+    
+    try {
+       await webhookTriggerApi.triggerGenerationWebhook(jobId);
+    } catch (error) {
+      logger.error("Error starting generation workflow", {
+        jobId,
+        error: error.message,
+        stack: error.stack,
+      });
       throw error;
     }
   }
@@ -220,7 +252,7 @@ class GenerationService {
         externalJobId: result.jobId,
         posterType: job.posterType,
         hasPrompt: !!result.prompt,
-        timing: result.timing
+        timing: result.timing,
       });
 
       await this.handleGenerationSuccess(job, result);
@@ -328,8 +360,12 @@ class GenerationService {
       );
 
       // Prepare generation parameters based on template and brand
-      const templateParameters = this.prepareImageTemplateParameters(job.templateId);
-      const brandParameter = this.prepareImageBrandParameters(job.profileId.getGenerationSummary());
+      const templateParameters = this.prepareImageTemplateParameters(
+        job.templateId
+      );
+      const brandParameter = this.prepareImageBrandParameters(
+        job.profileId.getGenerationSummary()
+      );
 
       const { image: templateUrl, ...restOfTemplate } = templateParameters;
       const { logo: logoUrl, ...restOfBrand } = brandParameter;
@@ -668,13 +704,20 @@ class GenerationService {
    * @param {string} posterType - Poster type
    * @returns {Promise<void>} Validation result
    */
-  async validateGenerationRequest(userId, profileId, templateId, generationContext) {
+  async validateGenerationRequest(
+    userId,
+    profileId,
+    templateId,
+    generationContext
+  ) {
     // Validate posterType
-    const validPosterTypes = ['wish', 'cta', 'awareness'];
+    const validPosterTypes = ["wish", "cta", "awareness"];
     if (!validPosterTypes.includes(generationContext.posterType)) {
       throw new GenerationValidationError(
-        `Invalid poster type: ${posterType}. Must be one of: ${validPosterTypes.join(', ')}`,
-        'posterType',
+        `Invalid poster type: ${posterType}. Must be one of: ${validPosterTypes.join(
+          ", "
+        )}`,
+        "posterType",
         posterType
       );
     }
@@ -744,7 +787,7 @@ class GenerationService {
    */
   prepareImageBrandParameters(profile) {
     const parameters = {
-      logo: profile.logo || null
+      logo: profile.logo || null,
     };
 
     // Add brand-specific parameters
