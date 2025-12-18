@@ -6,6 +6,7 @@ const { CreditService } = require('./creditService');
 const { providerFactory } = require('./aiProviders/providerFactory');
 const posterGenerationService = require('./posterGeneration');
 const logger = require('../utils/logger');
+const mongoose = require('mongoose');
 
 /**
  * Custom error classes for generation operations
@@ -174,13 +175,67 @@ class GenerationService {
   }
 
   /**
+   * Generate image using selected diffusion provider
+   * @param {GenerationJob} job - Generation job
+   * @param {string} prompt - Generated prompt
+   * @returns {Promise<Object>} Image generation result
+   */
+  async enhanceGenerationJob(jobId, imageUrl) {
+    logger.info("Enhancing generation job", { jobId, imageUrl });
+
+    try {
+      const validJobId = mongoose.Types.ObjectId.isValid(jobId);
+      if (!validJobId) {
+        throw new GenerationError("Invalid job ID", "INVALID_JOB_ID");
+      }
+
+      const job = await GenerationJob.findById(jobId);
+      if (!job) {
+        throw new GenerationError("Job not found", "JOB_NOT_FOUND");
+      }
+
+      job.result.metadata.selectedImageForEnahncement = imageUrl;
+
+      // Explicitly mark the nested field as modified
+      job.markModified("result.metadata");
+      await job.save();
+
+      // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
+      setImmediate(() => {
+        this.startEnhancemnetWorkflow(job._id.toString()).catch((error) => {
+          logger.error("Background processing failed", {
+            jobId: job._id,
+            error: error.message,
+            stack: error.stack,
+          });
+        });
+      });
+
+      return {
+        success: true,
+        jobStatus: job.status,
+        selectedImageForEnahncement: imageUrl,
+        message: "Enanhancing job started successfully",
+      };
+    } catch (error) {
+      logger.error("Error enhancing generation job", {
+        jobId: jobId,
+        imageUrl,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Process a generation job through the AI pipeline
    * @param {string|ObjectId} jobId - Generation job ID
    * @returns {Promise<Object>} Processing result
    */
   async startGenerationWorkflow(jobId) {
     logger.info("Starting generation workflow", { jobId });
-    
+
     try {
       const response = await webhookTriggerApi.triggerGenerationWebhook(jobId);
       logger.info(`${response.message} - ${response.details}`);
@@ -192,6 +247,23 @@ class GenerationService {
       });
       // Mark job as failed and release credits
       await this.handleGenerationFailure(jobId, error);
+      throw error;
+    }
+  }
+
+  async startEnhancemnetWorkflow(jobId) {
+    logger.info("Starting enhancement workflow", { jobId });
+    try {
+      const response = await webhookTriggerApi.triggerEnhancementWebhook(jobId);
+      logger.info(`${response.message} - ${response.details}`);
+    } catch (error) {
+      logger.error("Error starting generation workflow", {
+        jobId,
+        error: error.message,
+        stack: error.stack,
+      });
+      // Mark job as failed and release credits
+      // await this.handleGenerationFailure(jobId, error);
       throw error;
     }
   }

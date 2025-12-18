@@ -10,12 +10,22 @@ const webhookTriggerApi = {
   triggerGenerationWebhook: async (jobId) => {
     try {
       const response = await axiosClient.post("/generate/poster", { jobId });
-      return response; // 👈 IMPORTANT
+      return response;
     } catch (error) {
       console.error("Error triggering webhook:", error);
       throw error;
     }
   },
+
+  triggerEnhancementWebhook: async (jobId) => {
+    try {
+      const response = await axiosClient.post("/enhance/poster", { jobId });
+      return response;
+    } catch (error) {
+      console.error("Error triggering webhook:", error);
+      throw error;
+    }
+  }
 };
 
 module.exports = webhookTriggerApi;
