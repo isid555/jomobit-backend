@@ -190,6 +190,8 @@ class GenerationService {
         error: error.message,
         stack: error.stack,
       });
+      // Mark job as failed and release credits
+      await this.handleGenerationFailure(jobId, error);
       throw error;
     }
   }

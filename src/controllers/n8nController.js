@@ -1,26 +1,28 @@
 const logger = require("../utils/logger");
-const GenerationJob = require("../models/GenerationJob");
-const BusinessProfile = require("../models/BusinessProfile");
+const { GenerationService, GenerationError } = require('../services/generationService');
+const N8NService = require('../services/n8n/n8nService');
 
 class N8nController {
     constructor() {
         this.logger = logger;
+        this.generationService = new GenerationService();
+        this.service = new N8NService();
     }
 
     async updateJobStatus(req, res) {
-        this.logger.info("Received job status update");
-        this.logger.info(`Job ID: ${req.body.jobId} | Status: ${req.body.status}`)
-        res.sendStatus(200);
-
+        const {jobId, status} = req.body;
         try {
-            const {jobId, status} = req.body;
             if (!jobId || !status) {
-                throw new Error("Job ID or status not provided");
+                throw new GenerationError("Missing required fields", "MISSING_FIELDS", { jobId, status });
             }
 
-            await GenerationJob.findByIdAndUpdate(jobId, {status: status}, {new: true}).exec();
+            await this.service.updateStatus(jobId, status);
+            res.json({
+                success: true,
+                message: "Job status updated successfully"
+            })
         } catch (error) {
-            this.logger.error(`Error updating job status for job ID ${req.body.jobId}\nError: ${error.message}`);
+            this.generationService.handleGenerationFailure(jobId, error);
             return res.status(500).json({
                 success: false,
                 message: "Error updating job status",
@@ -30,18 +32,19 @@ class N8nController {
     }
 
     async getGenerationJob(req, res) {
+        const { jobId } = req.params;
         try {
-            const {jobId} = req.params;
-            const job = await GenerationJob.findById(jobId)
-              .populate("profileId") // Populate the profile data
-              .populate("templateId") // Populate the template data
-              .exec();
+            if (!jobId) {
+                throw new GenerationError("Missing required fields", "MISSING_FIELDS", { jobId });
+            }
+
+            const job = await this.service.getJob(jobId);
             res.json({
                 success: true,
                 jobData: job.toObject()
             });
         } catch (error) {
-            this.logger.error(`Error getting job data for job ID ${req.params.jobId}\nError: ${error.message}`);
+            this.generationService.handleGenerationFailure(jobId, error);
             return res.status(500).json({
                 success: false,
                 message: "Error getting job data",
@@ -50,70 +53,64 @@ class N8nController {
         }
     }
 
-    async getBusinessProfile(req, res) {
-        try {
-            const {profileId} = req.params;
-            const profile = await BusinessProfile.findById(profileId).exec();
-            res.json({
-                success: true,
-                profileData: profile.toObject()
-            });
-        } catch (error) {
-            this.logger.error(`Error getting profile data for profile ID ${req.params.profileId}\nError: ${error.message}`);
-            return res.status(500).json({
-                success: false,
-                message: "Error getting profile data",
-                error: error.message
-            })
-        }
-    }
+    // async getBusinessProfile(req, res) {
+    //     try {
+    //         const {profileId} = req.params;
+    //         const profile = await BusinessProfile.findById(profileId).exec();
+    //         res.json({
+    //             success: true,
+    //             profileData: profile.toObject()
+    //         });
+    //     } catch (error) {
+    //         this.logger.error(`Error getting profile data for profile ID ${req.params.profileId}\nError: ${error.message}`);
+    //         return res.status(500).json({
+    //             success: false,
+    //             message: "Error getting profile data",
+    //             error: error.message
+    //         })
+    //     }
+    // }
 
-    async getTemplate(req, res) {
-        try {
-            const {templateId} = req.params;
-            const template = await GenerationJob.findById(templateId).exec();
-            res.json({
-                success: true,
-                templateData: template.toObject()
-            });
-        } catch (error) {
-            this.logger.error(`Error getting template data for template ID ${req.params.templateId}\nError: ${error.message}`);
-            return res.status(500).json({
-                success: false,
-                message: "Error getting template data",
-                error: error.message
-            })
-        }
-    }
+    // async getTemplate(req, res) {
+    //     try {
+    //         const {templateId} = req.params;
+    //         const template = await GenerationJob.findById(templateId).exec();
+    //         res.json({
+    //             success: true,
+    //             templateData: template.toObject()
+    //         });
+    //     } catch (error) {
+    //         this.logger.error(`Error getting template data for template ID ${req.params.templateId}\nError: ${error.message}`);
+    //         return res.status(500).json({
+    //             success: false,
+    //             message: "Error getting template data",
+    //             error: error.message
+    //         })
+    //     }
+    // }
 
     async updateJobContext(req, res) {
+        const jobId = req.params.jobId;
         try {
+            if (!jobId) {
+                throw new GenerationError("Missing required fields", "MISSING_FIELDS", { jobId });
+            }
             const {jobStatus, generationContext, imageUrls} = req.body;
             if (!jobStatus || !generationContext || !imageUrls) {
-                throw new Error("Job status, generation context, or image URLs not provided");
+                throw new GenerationError("Missing required fields", "MISSING_FIELDS", { jobStatus, generationContext, imageUrls });
             }
 
-            const job = await GenerationJob.findById(req.params.jobId).exec();
-            if (!job) {
-                throw new Error("Job not found");
-            }
-
-            job.status = jobStatus;
-            job.generationContext = generationContext;
-            job.result = {
-                imageUrl: null,
-                metadata: {
-                    ...imageUrls
-                }
-            };
-
-            await job.save();
+            await this.service.updateJob(jobId, {
+              jobStatus,
+              generationContext,
+              imageUrls,
+            });
             res.json({
                 success: true,
                 message: "Job context updated successfully"
             })
         } catch (error) {
-            this.logger.error(`Error updating job context for job ID ${req.params.jobId}\nError: ${error.message}`);
+            this.generationService.handleGenerationFailure(jobId, error);
             return res.status(500).json({
                 success: false,
                 message: "Error updating job context",
