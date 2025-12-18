@@ -94,16 +94,13 @@ const generationJobSchema = new mongoose.Schema(
         templateId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Template",
-          required: true,
           index: true
         },
         festivalName: {
           type: String,
-          required: true
         },
         templateMeta: {
           type: mongoose.Schema.Types.Mixed,
-          required: true
         }
       },
       concept: {

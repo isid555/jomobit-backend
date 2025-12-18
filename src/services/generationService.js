@@ -653,8 +653,15 @@ class GenerationService {
       await job.fail({
         message: error.message || "Generation failed",
         code: error.code || "GENERATION_FAILED",
-        provider: error.provider || job.aiProvider.diffusion,
-        details: error.details || error,
+        details: error.details || {
+          message: error.message,
+          stack: error.stack,
+          ...(error.response && {
+            status: error.response.status,
+            statusText: error.response.statusText,
+            data: error.response.data
+          })
+        },
       });
 
       // Release reserved credits - handle case where credits might already be processed
