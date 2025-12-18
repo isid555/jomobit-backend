@@ -22,4 +22,10 @@ router.post(
   n8nController.updateJobContext.bind(n8nController)
 )
 
+router.post(
+  "/jobs/:jobId/enhanced",
+  verifyN8NRequestKey,
+  n8nController.updateJobEnhancement.bind(n8nController)
+)
+
 module.exports = router;

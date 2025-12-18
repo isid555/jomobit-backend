@@ -22,7 +22,7 @@ class N8nController {
                 message: "Job status updated successfully"
             })
         } catch (error) {
-            this.generationService.handleGenerationFailure(jobId, error);
+            await this.generationService.handleGenerationFailure(jobId, error);
             return res.status(500).json({
                 success: false,
                 message: "Error updating job status",
@@ -44,7 +44,7 @@ class N8nController {
                 jobData: job.toObject()
             });
         } catch (error) {
-            this.generationService.handleGenerationFailure(jobId, error);
+            await this.generationService.handleGenerationFailure(jobId, error);
             return res.status(500).json({
                 success: false,
                 message: "Error getting job data",
@@ -110,10 +110,51 @@ class N8nController {
                 message: "Job context updated successfully"
             })
         } catch (error) {
-            this.generationService.handleGenerationFailure(jobId, error);
+            await this.generationService.handleGenerationFailure(jobId, error);
             return res.status(500).json({
                 success: false,
                 message: "Error updating job context",
+                error: error.message
+            })
+        }
+    }
+
+    async updateJobEnhancement(req, res) {
+        const jobId = req.params.jobId;
+        try {
+            if (!jobId) {
+              throw new GenerationError(
+                "Missing required fields",
+                "MISSING_FIELDS",
+                { jobId }
+              );
+            }
+
+            const {enhancedImageUrl, enhancementMetadata, imagekitData} = req.body;
+            if (!enhancedImageUrl || !enhancementMetadata || !imagekitData) {
+              throw new GenerationError(
+                "Missing required fields",
+                "MISSING_FIELDS",
+                { enhancedImageUrl, enhancementMetadata, imagekitData }
+              );
+            }
+
+            const job = await this.service.updateEnhancement(jobId, {
+              enhancedImageUrl,
+              enhancementMetadata,
+              imagekitData,
+            });
+            res.json({
+                success: true,
+                message: "Job enhancement updated successfully"
+            })
+
+            this.generationService.handleGenerationSuccess(job, job.result);
+        } catch (error) {
+            await this.generationService.handleGenerationFailure(jobId, error);
+            return res.status(500).json({
+                success: false,
+                message: "Error updating job enhancement",
                 error: error.message
             })
         }

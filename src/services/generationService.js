@@ -594,7 +594,6 @@ class GenerationService {
         {
           completedAt: new Date(),
           imageUrl: result.imageUrl,
-          provider: job.aiProvider,
         }
       );
 
@@ -611,7 +610,7 @@ class GenerationService {
         status: "completed",
         result: {
           imageUrl: result.imageUrl,
-          thumbnailUrl: result.imageUrl,
+          thumbnailUrl: result.thumbnailUrl,
         },
         creditsDeducted: job.creditsReserved,
         message: "Generation completed successfully",

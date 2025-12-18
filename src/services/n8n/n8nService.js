@@ -145,6 +145,67 @@ class N8NService {
       );
     }
   }
+
+  async updateEnhancement(jobId, { enhancedImageUrl, enhancementMetadata, imagekitData }) {
+    try {
+      const validJobId = mongoose.Types.ObjectId.isValid(jobId);
+      if (!validJobId) {
+        throw new GenerationError("Invalid job ID", "INVALID_JOB_ID", {
+          jobId,
+        });
+      }
+
+      const job = await GenerationJob.findById(jobId);
+      if (!job) {
+        throw new GenerationError("Job not found", "JOB_NOT_FOUND", {
+          jobId,
+        });
+      }
+
+      let metadata = job.result.metadata || {};
+      metadata = {
+        ...metadata,
+        enhancementMetadata,
+      };
+      job.status = "completed";
+      job.result = {
+        imageUrl: enhancedImageUrl,
+        imagekitFileId: imagekitData.fileId,
+        thumbnailUrl: imagekitData.thumbnailUrl,
+        metadata,
+      };
+
+      // Explicitly mark the nested field as modified
+      job.markModified("result.metadata");
+      return await job.save();
+
+    } catch (error) {
+      if (error.name === "ValidationError") {
+        throw new GenerationValidationError(
+          "Job validation failed",
+          "VALIDATION_ERROR",
+          {
+            jobId,
+            validationErrors: error.errors,
+          }
+        );
+      } else if (error.code === "INVALID_JOB_ID") {
+        throw error;
+      } else if (error.code === "JOB_NOT_FOUND") {
+        throw error;
+      }
+
+      // Handle other errors
+      throw new GenerationError(
+        "Failed to update job status",
+        "UPDATE_FAILED",
+        {
+          jobId,
+          error: error.message,
+        }
+      );
+    }
+  }
 }
 
 module.exports = N8NService;
