@@ -10,4 +10,16 @@ router.patch(
   n8nController.updateJobStatus.bind(n8nController)
 );
 
+router.get(
+  "/jobs/:jobId",
+  verifyN8NRequestKey,
+  n8nController.getGenerationJob.bind(n8nController)
+);
+
+router.post(
+  "/jobs/:jobId",
+  verifyN8NRequestKey,
+  n8nController.updateJobContext.bind(n8nController)
+)
+
 module.exports = router;

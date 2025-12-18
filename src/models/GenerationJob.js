@@ -90,11 +90,26 @@ const generationJobSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.Mixed,
         required: true
       },
-      templateMetaId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'TemplateMeta',
+      template: {
+        templateId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Template",
+          required: true,
+          index: true
+        },
+        festivalName: {
+          type: String,
+          required: true
+        },
+        templateMeta: {
+          type: mongoose.Schema.Types.Mixed,
+          required: true
+        }
       },
       concept: {
+        type: mongoose.Schema.Types.Mixed,
+      },
+      creativeBlueprint: {
         type: mongoose.Schema.Types.Mixed,
       },
       copywriting: {
