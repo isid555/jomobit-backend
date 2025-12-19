@@ -174,6 +174,10 @@ const generationJobSchema = new mongoose.Schema(
       occurredAt: {
         type: Date,
       },
+
+      n8nError: {
+        type: mongoose.Schema.Types.Mixed
+      }
     },
 
     // Retry information
@@ -514,6 +518,19 @@ generationJobSchema.methods = {
       code: error.code,
       provider: error.provider,
       details: error.details,
+      occurredAt: new Date(),
+    };
+    this.completedAt = new Date();
+    return this.save();
+  },
+
+  async n8nFail(error) {
+    this.status = "failed";
+    this.n8nError = {
+      message: error.message,
+      workflowDetails: error.workflow,
+      executionDetails: error.execution,
+      errorNodeDetails: error.errorNode,
       occurredAt: new Date(),
     };
     this.completedAt = new Date();

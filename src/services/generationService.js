@@ -194,6 +194,8 @@ class GenerationService {
         throw new GenerationError("Job not found", "JOB_NOT_FOUND");
       }
 
+      job.status = "queued";
+      job.retryCount = job.retryCount + 1;
       job.result.metadata.selectedImageForEnahncement = imageUrl;
 
       // Explicitly mark the nested field as modified
@@ -238,7 +240,13 @@ class GenerationService {
 
     try {
       const response = await webhookTriggerApi.triggerGenerationWebhook(jobId);
-      logger.info(`${response.message} - ${response.details}`);
+      if (!response.executionId) {
+        throw new GenerationError("Missing N8N execution id", "MISSING_N8N_EXEC_ID", "Webhook response doesn't contains execution id");
+      }
+
+      const job = await GenerationJob.findById(jobId);
+      job.externalJobId = response.executionId;
+      await job.save();
     } catch (error) {
       logger.error("Error starting generation workflow", {
         jobId,
@@ -632,7 +640,7 @@ class GenerationService {
    * @param {Object} error - Error information
    * @returns {Promise<Object>} Failure handling result
    */
-  async handleGenerationFailure(jobId, error) {
+  async handleGenerationFailure(jobId, error, isN8NError = false) {
     logger.info("Handling generation failure", {
       jobId,
       errorMessage: error.message || "Unknown error",
@@ -649,20 +657,25 @@ class GenerationService {
         );
       }
 
-      // Mark job as failed
-      await job.fail({
-        message: error.message || "Generation failed",
-        code: error.code || "GENERATION_FAILED",
-        details: error.details || {
-          message: error.message,
-          stack: error.stack,
-          ...(error.response && {
-            status: error.response.status,
-            statusText: error.response.statusText,
-            data: error.response.data
-          })
-        },
-      });
+      if (isN8NError) {
+        await job.n8nFail(error);
+      } else {
+        // Mark job as failed
+        await job.fail({
+          message: error.message || "Generation failed",
+          code: error.code || "GENERATION_FAILED",
+          details: error.details || {
+            message: error.message,
+            stack: error.stack,
+            ...(error.response && {
+              status: error.response.status,
+              statusText: error.response.statusText,
+              data: error.response.data,
+            }),
+          },
+        });
+      }
+      
 
       // Release reserved credits - handle case where credits might already be processed
       try {

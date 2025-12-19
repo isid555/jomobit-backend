@@ -272,42 +272,42 @@ class PosterController {
       };
 
       // Add detailed metadata if requested
-      if (includeMetadata === "true") {
-        response.metadata = {
-          generationDetails: {
-            aiProvider: job.aiProvider,
-            prompt: job.prompt,
-            timing: job.timing,
-            retryCount: job.retryCount,
-            priority: job.priority,
-          },
-          businessProfile: {
-            id: job.profileId._id,
-            name: job.profileId.name,
-          },
-          template: {
-            id: job.templateId._id,
-            name: job.templateId.name,
-            aspectRatio: job.templateId.aspectRatio,
-          },
-          processing: {
-            createdAt: job.createdAt,
-            startedAt: job.startedAt,
-            completedAt: job.completedAt,
-            totalDuration: job.getProcessingDuration(),
-          },
-        };
+      // if (includeMetadata === "true") {
+      //   response.metadata = {
+      //     generationDetails: {
+      //       aiProvider: job.aiProvider,
+      //       prompt: job.prompt,
+      //       timing: job.timing,
+      //       retryCount: job.retryCount,
+      //       priority: job.priority,
+      //     },
+      //     businessProfile: {
+      //       id: job.profileId._id,
+      //       name: job.profileId.name,
+      //     },
+      //     template: {
+      //       id: job.templateId._id,
+      //       name: job.templateId.name,
+      //       aspectRatio: job.templateId.aspectRatio,
+      //     },
+      //     processing: {
+      //       createdAt: job.createdAt,
+      //       startedAt: job.startedAt,
+      //       completedAt: job.completedAt,
+      //       totalDuration: job.getProcessingDuration(),
+      //     },
+      //   };
 
-        // Add error details if job failed
-        if (job.status === "failed" && job.error) {
-          response.metadata.error = {
-            message: job.error.message,
-            code: job.error.code,
-            provider: job.error.provider,
-            occurredAt: job.error.occurredAt,
-          };
-        }
-      }
+      //   // Add error details if job failed
+      //   if (job.status === "failed" && job.error) {
+      //     response.metadata.error = {
+      //       message: job.error.message,
+      //       code: job.error.code,
+      //       provider: job.error.provider,
+      //       occurredAt: job.error.occurredAt,
+      //     };
+      //   }
+      // }
 
       res.json(response);
     } catch (error) {

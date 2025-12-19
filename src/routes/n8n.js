@@ -10,6 +10,12 @@ router.patch(
   n8nController.updateJobStatus.bind(n8nController)
 );
 
+router.post(
+  "/jobs/error",
+  verifyN8NRequestKey,
+  n8nController.handleN8NError.bind(n8nController)
+);
+
 router.get(
   "/jobs/:jobId",
   verifyN8NRequestKey,

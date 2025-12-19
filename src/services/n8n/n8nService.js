@@ -1,3 +1,4 @@
+const logger = require("../../utils/logger");
 const GenerationJob = require("../../models/GenerationJob");
 const {
   GenerationService,
@@ -8,7 +9,60 @@ const mongoose = require("mongoose");
 
 class N8NService {
   constructor() {
+    this.logger = logger;
     this.generationService = new GenerationService();
+  }
+
+  async handleGenerationFailure(errorContext) {
+    const executionId = errorContext.execution.id;
+    try {
+      const job = await GenerationJob.getJobByExternalId({ externalJobId: executionId });
+      if (!job) {
+        throw new GenerationError(
+          `Job not found for given n8n execution id`,
+          "JOB_NOT_FOUND",
+          { executionId }
+        );
+      }
+
+      await this.generationService.handleGenerationFailure(job.id, errorContext, true);
+    } catch (error) {
+      this.logger.error("Error handling generation failure for failed n8n job", {
+        executionId,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
+  }
+
+  async handleEnhancementFailure(errorContext) {
+    const executionId = errorContext.execution.id;
+    try {
+      const job = await GenerationJob.getJobByExternalId({ externalJobId: executionId });
+      if (!job) {
+        throw new GenerationError(`Job not found for given n8n execution id`, "JOB_NOT_FOUND", { executionId });
+      }
+
+      if (job.status !== "pending") {
+        throw new GenerationError(`Job is not in pending status: ${job.status}`, "INVALID_JOB_STATUS", { executionId, currentStatus: job.status });
+      }
+
+      if (job.retryCount < job.maxRetries) {
+        job.status = "pending";
+        await job.save();
+        return;
+      }
+      
+      await this.generationService.handleGenerationFailure(job.id, errorContext, true);
+    } catch (error) {
+      this.logger.error("Error handling enhancement failure for failed n8n job", {
+        executionId,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
   }
 
   async updateStatus(jobId, status) {

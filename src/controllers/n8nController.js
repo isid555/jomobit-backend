@@ -9,6 +9,44 @@ class N8nController {
         this.service = new N8NService();
     }
 
+    async handleN8NError(req, res) {
+        try {
+            const errorContext = req.body;
+            const workflowId = errorContext.workflow.id;
+            if (!workflowId) {
+                throw new GenerationError("Missing required fields: workflowId from n8n error", "MISSING_FIELDS", { workflowId });
+            }
+
+            switch (workflowId) {
+              case process.env.N8N_GENERATION_FLOW_ID:
+                await this.service.handleGenerationFailure(errorContext);
+                break;
+              case process.env.N8N_ENHANCEMENT_FLOW_ID:
+                await this.service.handleEnhancementFailure(
+                  errorContext
+                );
+                break;
+              default:
+                throw new GenerationError(
+                  "Invalid workflow id",
+                  "INVALID_WORKFLOW_ID",
+                  { workflowId }
+                );
+            }
+            return res.status(200).json({
+                success: true,
+                message: "Error handled successfully"
+            })
+        } catch (error) {
+            this.logger.error(`Error handling n8n error`, { error: error.message, stack: error.stack });
+            return res.status(500).json({
+                success: false,
+                message: "Error handling n8n error",
+                error: error.message
+            })
+        }
+    }
+
     async updateJobStatus(req, res) {
         const {jobId, status} = req.body;
         try {
