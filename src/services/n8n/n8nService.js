@@ -16,7 +16,7 @@ class N8NService {
   async handleGenerationFailure(errorContext) {
     const executionId = errorContext.execution.id;
     try {
-      const job = await GenerationJob.getJobByExternalId({ externalJobId: executionId });
+      const job = await GenerationJob.getJobByExternalId(executionId);
       if (!job) {
         throw new GenerationError(
           `Job not found for given n8n execution id`,
@@ -39,17 +39,14 @@ class N8NService {
   async handleEnhancementFailure(errorContext) {
     const executionId = errorContext.execution.id;
     try {
-      const job = await GenerationJob.getJobByExternalId({ externalJobId: executionId });
+      const job = await GenerationJob.getJobByExternalId(executionId);
       if (!job) {
         throw new GenerationError(`Job not found for given n8n execution id`, "JOB_NOT_FOUND", { executionId });
       }
 
-      if (job.status !== "pending") {
-        throw new GenerationError(`Job is not in pending status: ${job.status}`, "INVALID_JOB_STATUS", { executionId, currentStatus: job.status });
-      }
-
-      if (job.retryCount < job.maxRetries) {
+      if (job.retryCount < 3) {
         job.status = "pending";
+        job.retryCount = job.retryCount + 1;
         await job.save();
         return;
       }

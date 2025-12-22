@@ -194,8 +194,14 @@ class GenerationService {
         throw new GenerationError("Job not found", "JOB_NOT_FOUND");
       }
 
+      if (job.retryCount >= 3) {
+        throw new GenerationError(
+          `Job cannot be retried. Status: ${job.status}, Retries: ${job.retryCount}`,
+          "RETRY_NOT_ALLOWED",
+          { jobId, status: job.status, retryCount: job.retryCount }
+        );
+      }
       job.status = "queued";
-      job.retryCount = job.retryCount + 1;
       job.result.metadata.selectedImageForEnahncement = imageUrl;
 
       // Explicitly mark the nested field as modified
@@ -263,7 +269,14 @@ class GenerationService {
     logger.info("Starting enhancement workflow", { jobId });
     try {
       const response = await webhookTriggerApi.triggerEnhancementWebhook(jobId);
-      logger.info(`${response.message} - ${response.details}`);
+      if (!response.executionId) {
+        throw new GenerationError("Missing N8N execution id", "MISSING_N8N_EXEC_ID", "Webhook response doesn't contains execution id");
+      }
+      const job = await GenerationJob.findById(jobId);
+      job.externalJobId = response.executionId;
+      await job.save();
+
+      logger.info("Enhancement workflow started successfully", { jobId });
     } catch (error) {
       logger.error("Error starting generation workflow", {
         jobId,
