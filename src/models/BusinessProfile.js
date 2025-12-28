@@ -25,7 +25,7 @@ const businessProfileSchema = new mongoose.Schema({
   // Business tagline/slogan (required, editable)
   tagline: {
     type: String,
-    required: true,
+    // required: true,
     trim: true,
     maxlength: 200
   },
@@ -82,7 +82,7 @@ const businessProfileSchema = new mongoose.Schema({
   // Business niche (auto-detected or manually set)
   niche: {
     type: String,
-    required: false,
+    required: true,
     trim: true,
     lowercase: true,
     index: true
@@ -317,7 +317,7 @@ businessProfileSchema.methods = {
    * @returns {Promise<BusinessProfile>} Updated profile
    */
   async updateEditableFields(updates) {
-    const editableFields = ['tagline', 'products', 'colorPalette', 'typography'];
+    const editableFields = ['tagline', 'description', 'products', 'colorPalette', 'typography', 'address'];
 
     editableFields.forEach(field => {
       if (updates[field] !== undefined) {

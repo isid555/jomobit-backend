@@ -14,21 +14,21 @@ class N8NService {
   }
 
   async handleGenerationFailure(errorContext) {
-    const executionId = errorContext.execution.id;
+    const uuid = errorContext.uuid;
     try {
-      const job = await GenerationJob.getJobByExternalId(executionId);
+      const job = await GenerationJob.getJobByExternalId(uuid);
       if (!job) {
         throw new GenerationError(
           `Job not found for given n8n execution id`,
           "JOB_NOT_FOUND",
-          { executionId }
+          { uuid }
         );
       }
 
       await this.generationService.handleGenerationFailure(job.id, errorContext, true);
     } catch (error) {
       this.logger.error("Error handling generation failure for failed n8n job", {
-        executionId,
+        uuid,
         error: error.message,
         stack: error.stack,
       });
@@ -37,11 +37,11 @@ class N8NService {
   }
 
   async handleEnhancementFailure(errorContext) {
-    const executionId = errorContext.execution.id;
+    const uuid = errorContext.uuid;
     try {
-      const job = await GenerationJob.getJobByExternalId(executionId);
+      const job = await GenerationJob.getJobByExternalId(uuid);
       if (!job) {
-        throw new GenerationError(`Job not found for given n8n execution id`, "JOB_NOT_FOUND", { executionId });
+        throw new GenerationError(`Job not found for given n8n execution id`, "JOB_NOT_FOUND", { uuid });
       }
 
       if (job.retryCount < 3) {
@@ -54,7 +54,7 @@ class N8NService {
       await this.generationService.handleGenerationFailure(job.id, errorContext, true);
     } catch (error) {
       this.logger.error("Error handling enhancement failure for failed n8n job", {
-        executionId,
+        uuid,
         error: error.message,
         stack: error.stack,
       });

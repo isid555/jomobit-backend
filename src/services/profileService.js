@@ -55,10 +55,10 @@ class ProfileValidationError extends Error {
 class ProfileService {
   constructor() {
     // Editable fields that users can modify after profile creation
-    this.EDITABLE_FIELDS = ['tagline', 'products', 'colorPalette', 'typography'];
-    
+    this.EDITABLE_FIELDS = ['tagline', 'description', 'products', 'colorPalette', 'typography', 'address'];
+
     // Required fields for profile creation
-    this.REQUIRED_FIELDS = ['name', 'tagline', 'description'];
+    this.REQUIRED_FIELDS = ['name', 'niche', 'description'];
   }
 
   /**
@@ -70,7 +70,7 @@ class ProfileService {
     try {
       // Get user's active subscription
       const subscription = await Subscription.getUserActiveSubscription(userId);
-      
+
       if (subscription && subscription.planId) {
         return {
           plan: subscription.planId,
@@ -94,7 +94,7 @@ class ProfileService {
         userId,
         error: error.message
       });
-      
+
       // Fallback to free plan limits
       return {
         plan: null,
@@ -165,8 +165,8 @@ class ProfileService {
       };
 
     } catch (error) {
-      if (error instanceof PlanLimitExceededError || 
-          error instanceof ProfileValidationError) {
+      if (error instanceof PlanLimitExceededError ||
+        error instanceof ProfileValidationError) {
         throw error;
       }
 
@@ -208,7 +208,7 @@ class ProfileService {
 
       // Filter updates to only include editable fields
       const editableUpdates = this._filterEditableFields(updates);
-      
+
       if (Object.keys(editableUpdates).length === 0) {
         throw new ProfileValidationError(
           'No editable fields provided for update',
@@ -237,8 +237,8 @@ class ProfileService {
       };
 
     } catch (error) {
-      if (error instanceof ProfileNotFoundError || 
-          error instanceof ProfileValidationError) {
+      if (error instanceof ProfileNotFoundError ||
+        error instanceof ProfileValidationError) {
         throw error;
       }
 
@@ -452,8 +452,8 @@ class ProfileService {
       };
 
     } catch (error) {
-      if (error instanceof ProfileNotFoundError || 
-          error instanceof PlanLimitExceededError) {
+      if (error instanceof ProfileNotFoundError ||
+        error instanceof PlanLimitExceededError) {
         throw error;
       }
 
@@ -584,7 +584,7 @@ class ProfileService {
    */
   _filterEditableFields(updates) {
     const editableUpdates = {};
-    
+
     for (const field of this.EDITABLE_FIELDS) {
       if (updates[field] !== undefined) {
         editableUpdates[field] = updates[field];
@@ -619,6 +619,17 @@ class ProfileService {
       }
     }
 
+    // Validate description
+    if (updates.description !== undefined) {
+      if (typeof updates.description !== 'string' || updates.description.trim().length === 0) {
+        throw new ProfileValidationError(
+          'Description must be a non-empty string',
+          'description',
+          updates.description
+        );
+      }
+    }
+
     // Validate products array
     if (updates.products !== undefined) {
       if (!Array.isArray(updates.products)) {
@@ -628,7 +639,7 @@ class ProfileService {
           updates.products
         );
       }
-      
+
       for (const product of updates.products) {
         if (typeof product !== 'string' || product.trim().length === 0) {
           throw new ProfileValidationError(
@@ -665,7 +676,7 @@ class ProfileService {
             color
           );
         }
-        
+
         if (!/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color.hex)) {
           throw new ProfileValidationError(
             'Invalid hex color format',
@@ -702,6 +713,28 @@ class ProfileService {
         );
       }
     }
+
+    // Validate address
+    if (updates.address !== undefined) {
+      if (typeof updates.address !== 'object' || updates.address === null) {
+        throw new ProfileValidationError(
+          'Address must be an object',
+          'address',
+          updates.address
+        );
+      }
+
+      const requiredAddressFields = ['street', 'city', 'state', 'country', 'zipCode'];
+      for (const field of requiredAddressFields) {
+        if (updates.address[field] && typeof updates.address[field] !== 'string') {
+          throw new ProfileValidationError(
+            `Address ${field} must be a string`,
+            `address.${field}`,
+            updates.address[field]
+          );
+        }
+      }
+    }
   }
 
   /**
@@ -715,10 +748,14 @@ class ProfileService {
 
     // Required fields
     sanitized.name = profileData.name.trim();
-    sanitized.tagline = profileData.tagline.trim();
+    sanitized.niche = profileData.niche.trim();
     sanitized.description = profileData.description.trim();
 
     // Optional fields
+    if (profileData.tagline) {
+      sanitized.tagline = profileData.tagline.trim();
+    }
+
     if (profileData.logo) {
       sanitized.logo = profileData.logo.trim();
     }

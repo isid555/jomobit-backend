@@ -246,12 +246,12 @@ class GenerationService {
 
     try {
       const response = await webhookTriggerApi.triggerGenerationWebhook(jobId);
-      if (!response.executionId) {
-        throw new GenerationError("Missing N8N execution id", "MISSING_N8N_EXEC_ID", "Webhook response doesn't contains execution id");
+      if (!response.uuid) {
+        throw new GenerationError("Missing N8N unique id", "MISSING_N8N_UUID", "Webhook response doesn't contains unique id");
       }
 
       const job = await GenerationJob.findById(jobId);
-      job.externalJobId = response.executionId;
+      job.externalJobId = response.uuid;
       await job.save();
     } catch (error) {
       logger.error("Error starting generation workflow", {
@@ -269,11 +269,11 @@ class GenerationService {
     logger.info("Starting enhancement workflow", { jobId });
     try {
       const response = await webhookTriggerApi.triggerEnhancementWebhook(jobId);
-      if (!response.executionId) {
-        throw new GenerationError("Missing N8N execution id", "MISSING_N8N_EXEC_ID", "Webhook response doesn't contains execution id");
+      if (!response.uuid) {
+        throw new GenerationError("Missing N8N unique id", "MISSING_N8N_UUID", "Webhook response doesn't contains unique id");
       }
       const job = await GenerationJob.findById(jobId);
-      job.externalJobId = response.executionId;
+      job.externalJobId = response.uuid;
       await job.save();
 
       logger.info("Enhancement workflow started successfully", { jobId });
