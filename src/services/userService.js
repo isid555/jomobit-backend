@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const { CreditService } = require('./creditService');
 const logger = require('../utils/logger');
+const Plan = require('../models/Plan');
 
 /**
  * Custom error classes for user operations
@@ -734,13 +735,20 @@ class UserService {
         logger.info('No active subscription found, returning free plan defaults', {
           userId
         });
+
+
+        const FreePlan =  await Plan.findOne({ tier: "free", status: "active" });
+
+
+       
         
         return {
           success: true,
-          plan: 'Free',
-          tier: 'free',
-          brandsLimit: 1
+          plan: FreePlan.name,
+          tier: FreePlan.tier,
+          brandsLimit: FreePlan.features?.businessProfiles?.limit || 1
         };
+
       }
 
       const plan = subscription.planId;
