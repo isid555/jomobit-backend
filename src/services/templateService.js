@@ -394,6 +394,58 @@ class TemplateService {
   }
 
   /**
+   * Get featured templates for trial/guest users
+   * Returns recently added featured templates without authentication
+   * @param {number} limit - Number of templates to return (default: 15, max: 50)
+   * @returns {Promise<Object>} Trial templates
+   */
+  async getTrialTemplates(limit = 15) {
+    try {
+      // Validate and constrain limit
+      const validatedLimit = Math.min(50, Math.max(1, parseInt(limit)));
+
+      logger.info("Getting trial templates", {
+        limit: validatedLimit,
+        operation: "getTrialTemplates",
+      });
+
+      // Fetch featured, active, public templates sorted by creation date (most recent first)
+      const templates = await Template.find({
+        isFeatured: true,
+        status: "active",
+        isPublic: true,
+      })
+        .select("-__v -createdBy") // Exclude sensitive fields
+        .sort({ createdAt: -1 }) // Most recent first
+        .limit(validatedLimit)
+        .lean() // Return plain JavaScript objects for better performance
+        .exec();
+
+      logger.info("Trial templates retrieved successfully", {
+        count: templates.length,
+        requestedLimit: limit,
+        actualLimit: validatedLimit,
+      });
+
+      return {
+        success: true,
+        templates,
+        count: templates.length,
+      };
+    } catch (error) {
+      logger.error("Error getting trial templates", {
+        limit,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw new TemplateOperationError(
+        `Failed to get trial templates: ${error.message}`,
+        "getTrialTemplates"
+      );
+    }
+  }
+
+  /**
    * Increment template usage count
    * @param {string|ObjectId} templateId - Template ID
    * @returns {Promise<Object>} Operation result
@@ -698,9 +750,8 @@ class TemplateService {
         template: template.getSummary(),
         oldFeaturedStatus,
         newFeaturedStatus: template.isFeatured,
-        message: `Template ${
-          template.isFeatured ? "featured" : "unfeatured"
-        } successfully`,
+        message: `Template ${template.isFeatured ? "featured" : "unfeatured"
+          } successfully`,
       };
     } catch (error) {
       if (

@@ -61,7 +61,7 @@
 //         }
 
 //         const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:4040').split(',');
-        
+
 //         // Check if origin is in allowed list
 //         if (allowedOrigins.includes(origin)) {
 //           callback(null, true);
@@ -264,7 +264,7 @@
 //   initializeErrorHandling() {
 //     // 404 handler
 //     this.app.use(notFound);
-    
+
 //     // Global error handler
 //     this.app.use(errorHandler);
 //   }
@@ -273,10 +273,10 @@
 //     try {
 //       // Connect to MongoDB
 //       await databaseConnection.connect();
-      
+
 //       // Connect to Redis
 //       // await redisConnection.connect();
-      
+
 //       logger.info('All database connections established');
 
 //       // Initialize subscription jobs after MongoDB connection succeeds
@@ -323,12 +323,12 @@
 //   setupGracefulShutdown() {
 //     const gracefulShutdown = async (signal) => {
 //       logger.info(`Received ${signal}. Starting graceful shutdown...`);
-      
+
 //       // Close server
 //       if (this.server) {
 //         this.server.close(async () => {
 //           logger.info('HTTP server closed');
-          
+
 //           try {
 //             // Stop subscription jobs
 //             subscriptionJobs.stopAllJobs();
@@ -337,7 +337,7 @@
 //             // Close database connections
 //             await databaseConnection.disconnect();
 //             await redisConnection.disconnect();
-            
+
 //             logger.info('All connections closed. Exiting process.');
 //             process.exit(0);
 //           } catch (error) {
@@ -351,7 +351,7 @@
 //     // Listen for termination signals
 //     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 //     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-    
+
 //     // Handle uncaught exceptions
 //     process.on('uncaughtException', (error) => {
 //       logger.error('Uncaught Exception:', error);
@@ -384,11 +384,11 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 const { morganMiddleware, requestLogger } = require('./middleware/logging');
 const { sanitizeInput } = require('./middleware/validation');
 
-const { 
-  rateLimitConfigs, 
-  hppProtection, 
-  validateRequestSize, 
-  securityHeaders, 
+const {
+  rateLimitConfigs,
+  hppProtection,
+  validateRequestSize,
+  securityHeaders,
   correlationId,
   contentSecurityPolicy
 } = require('./middleware/security');
@@ -436,7 +436,7 @@ class App {
         }
 
         const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:4040').split(',');
-        
+
         if (allowedOrigins.includes(origin)) {
           callback(null, true);
         } else {
@@ -453,8 +453,8 @@ class App {
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
       allowedHeaders: [
-        'Content-Type', 
-        'Authorization', 
+        'Content-Type',
+        'Authorization',
         'X-Correlation-ID',
         'X-Request-ID',
         'X-API-Key',
@@ -489,7 +489,7 @@ class App {
     // ============================================
     // DO NOT parse webhook bodies with express.json()
     // They need raw Buffer for signature verification
-    
+
     this.app.use((req, res, next) => {
       // Skip JSON parsing for webhook routes
       if (req.path.startsWith('/api/webhooks')) {
@@ -500,7 +500,7 @@ class App {
         });
         return next();
       }
-      
+
       // Apply JSON parsing for all other routes
       express.json({ limit: '10mb' })(req, res, next);
     });
@@ -510,10 +510,10 @@ class App {
       if (req.path.startsWith('/api/webhooks')) {
         return next();
       }
-      
+
       // Apply URL encoding for all other routes
-      express.urlencoded({ 
-        extended: true, 
+      express.urlencoded({
+        extended: true,
         limit: '10mb',
         parameterLimit: 100
       })(req, res, next);
@@ -560,12 +560,16 @@ class App {
     const adminRoutes = require('./routes/admin');
     const planRoutes = require('./routes/plan');
     const n8nRoutes = require('./routes/n8n');
+    const trialRoutes = require('./routes/trial');
 
     // ============================================
     // 🔥 CRITICAL: Mount webhook routes FIRST
     // ============================================
     // This ensures raw body handling happens before any other parsing
     this.app.use('/api/webhooks', webhookRoutes);
+
+    // Public routes (no authentication required)
+    this.app.use('/api/trial', trialRoutes);
 
     // API routes (these get JSON parsing)
     this.app.use('/api/auth', authRoutes);
@@ -585,6 +589,9 @@ class App {
         version: '1.0.0',
         timestamp: new Date().toISOString(),
         endpoints: {
+          trial: [
+            'GET /api/trial/templates'
+          ],
           auth: [
             'GET /api/auth/me',
             'POST /api/auth/login',
@@ -664,7 +671,7 @@ class App {
   initializeErrorHandling() {
     // 404 handler
     this.app.use(notFound);
-    
+
     // Global error handler
     this.app.use(errorHandler);
   }
@@ -673,10 +680,10 @@ class App {
     try {
       // Connect to MongoDB
       await databaseConnection.connect();
-      
+
       // Connect to Redis
       // await redisConnection.connect();
-      
+
       logger.info('All database connections established');
 
       // Initialize subscription jobs after MongoDB connection succeeds
@@ -723,12 +730,12 @@ class App {
   setupGracefulShutdown() {
     const gracefulShutdown = async (signal) => {
       logger.info(`Received ${signal}. Starting graceful shutdown...`);
-      
+
       // Close server
       if (this.server) {
         this.server.close(async () => {
           logger.info('HTTP server closed');
-          
+
           try {
             // Stop subscription jobs
             subscriptionJobs.stopAllJobs();
@@ -737,7 +744,7 @@ class App {
             // Close database connections
             await databaseConnection.disconnect();
             await redisConnection.disconnect();
-            
+
             logger.info('All connections closed. Exiting process.');
             process.exit(0);
           } catch (error) {
@@ -751,7 +758,7 @@ class App {
     // Listen for termination signals
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-    
+
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {
       logger.error('Uncaught Exception:', error);
