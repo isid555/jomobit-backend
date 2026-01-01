@@ -307,6 +307,7 @@ templateSchema.statics = {
       "raksha bandhan",
       "women's day",
       "ganesh chaturthi",
+      "new year"
     ];
 
     const query = {
