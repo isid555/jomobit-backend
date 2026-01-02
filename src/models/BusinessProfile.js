@@ -35,7 +35,7 @@ const businessProfileSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    maxlength: 1000
+    maxlength: 10000
   },
 
   // Business logo (ImageKit URL)
