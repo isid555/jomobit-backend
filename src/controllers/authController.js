@@ -8,7 +8,7 @@ const logger = require('../utils/logger');
 class AuthController {
   constructor() {
     this.userService = new UserService();
-    
+
     // Bind all methods to preserve 'this' context
     this.getCurrentUser = this.getCurrentUser.bind(this);
     this.updateLastLogin = this.updateLastLogin.bind(this);
@@ -20,6 +20,7 @@ class AuthController {
     this.getUserStats = this.getUserStats.bind(this);
     this.syncUserRegistration = this.syncUserRegistration.bind(this);
     this.syncUserLogin = this.syncUserLogin.bind(this);
+    this.syncGuestJob = this.syncGuestJob.bind(this);
   }
 
 
@@ -40,7 +41,7 @@ class AuthController {
       }
 
       const { auth0User } = req.body;
-      
+
       // Extract identity information for new fields
       const identities = auth0User.identities || [];
       const primaryIdentity = identities[0] || {};
@@ -51,7 +52,7 @@ class AuthController {
         email: auth0User.email?.toLowerCase(),
         emailVerified: auth0User.email_verified || false,
         status: auth0User.email_verified ? 'active' : 'pending',
-        
+
         // New identity fields
         identities: identities.map(identity => ({
           provider: identity.provider,
@@ -59,12 +60,12 @@ class AuthController {
           connection: identity.connection,
           isSocial: identity.provider !== 'auth0'
         })),
-        
+
         primaryIdentity: {
           provider: primaryIdentity.provider,
           connection: primaryIdentity.connection
         },
-        
+
         metadata: {
           name: auth0User.name,
           given_name: auth0User.given_name,
@@ -81,14 +82,14 @@ class AuthController {
 
       // Check for existing user by email first (prevent duplicates)
       let existingUser = await this.userService.getUserByEmail(auth0User.email);
-      
+
       if (existingUser) {
         // Update existing user with new Auth0 identity
         // const updatedUser = await this.userService.addIdentityToUser(
         //   existingUser._id, 
         //   userData
         // );
-        
+
         // logger.info('User identity linked to existing account', {
         //   userId: updatedUser._id,
         //   email: updatedUser.email,
@@ -122,7 +123,7 @@ class AuthController {
 
       // Create new user
       const newUser = await this.userService.createOrUpdateFromAuth0(userData);
-      
+
       logger.info('New user created from Auth0 registration', {
         userId: newUser._id,
         auth0Id: newUser.auth0Id,
@@ -164,9 +165,9 @@ class AuthController {
       }
 
       const { auth0User } = req.body;
-      
+
       const result = await this.userService.createOrUpdateFromAuth0(auth0User);
-      
+
       res.json({
         success: true,
         message: 'User updated successfully',
@@ -179,7 +180,7 @@ class AuthController {
         logger.warn('User not found during login sync', {
           auth0Id: req.body.auth0User?.user_id
         });
-        
+
         return res.status(404).json({
           success: false,
           error: 'User not found',
@@ -205,8 +206,8 @@ class AuthController {
       const { userId: id } = req.user;
 
       console.log("Middleware breached entered service");
-      
-   
+
+
 
       const result = await this.userService.getUserById(id);
 
@@ -232,7 +233,7 @@ class AuthController {
           auth0Id: req.user.id,
           email: req.user.email
         });
-        
+
         return res.status(404).json({
           success: false,
           error: 'User not found',
@@ -258,8 +259,8 @@ class AuthController {
       const { userId: id } = req.user;
 
       console.log("Middleware breached entered service");
-      
-   
+
+
 
       const result = await this.userService.getUserById(id);
 
@@ -303,8 +304,8 @@ class AuthController {
       const { userId: id } = req.user;
 
       console.log("Middleware breached entered service");
-      
-   
+
+
 
       const result = await this.userService.getUserById(id);
 
@@ -341,17 +342,17 @@ class AuthController {
    */
   async getUserProfile(req, res) {
     try {
-      
+
       const { userId: id } = req.user;
 
       console.log("Middleware breached entered service");
-      
+
       // Get user with credits
       const result = await this.userService.getUserWithCredits(id);
-      
+
       // Get business profile count
       const brandsResult = await this.userService.getUserBusinessProfileCount(id);
-      
+
       // Get user's plan details
       const planDetails = await this.userService.getUserPlanDetails(id);
 
@@ -408,11 +409,11 @@ class AuthController {
    */
   async getUsers(req, res) {
     try {
-      const { 
-        page = 1, 
-        limit = 50, 
-        status, 
-        sortBy = 'createdAt', 
+      const {
+        page = 1,
+        limit = 50,
+        status,
+        sortBy = 'createdAt',
         sortOrder = 'desc',
         search
       } = req.query;
@@ -486,7 +487,7 @@ class AuthController {
     try {
       const { userId } = req.params;
       const { reason } = req.body;
-      
+
       const result = await this.userService.suspendUser(userId, reason);
 
       logger.info('User suspended by admin', {
@@ -532,7 +533,7 @@ class AuthController {
   async activateUser(req, res) {
     try {
       const { userId } = req.params;
-      
+
       const result = await this.userService.activateUser(userId);
 
       logger.info('User activated by admin', {
@@ -589,6 +590,143 @@ class AuthController {
         success: false,
         error: 'Internal server error',
         message: 'Failed to fetch user statistics'
+      });
+    }
+  }
+
+  /**
+   * Sync guest user job to authenticated user
+   * POST /api/auth/sync-guest-job
+   * Transfers job ownership from guest user to actual user after signup
+   * @access Private (requires authentication)
+   */
+  async syncGuestJob(req, res) {
+    try {
+      const { guestUserId } = req.body;
+      const actualUserId = req.user.userId; // From JWT token
+
+      logger.info('Starting guest job sync', {
+        guestUserId,
+        actualUserId,
+        operation: 'syncGuestJob'
+      });
+
+      // Validate guestUserId
+      if (!guestUserId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Guest user ID is required'
+        });
+      }
+
+      // Validate ObjectId format
+      const mongoose = require('mongoose');
+      if (!mongoose.Types.ObjectId.isValid(guestUserId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Invalid guest user ID format'
+        });
+      }
+
+      // Find guest user
+      const User = require('../models/User');
+      const guestUser = await User.findById(guestUserId);
+
+      if (!guestUser) {
+        logger.warn('Guest user not found', { guestUserId });
+        return res.status(404).json({
+          success: false,
+          error: 'Not Found',
+          message: 'Guest user not found'
+        });
+      }
+
+      // Verify it's actually a guest user
+      if (!guestUser.isGuest) {
+        logger.warn('User is not a guest user', {
+          guestUserId,
+          isGuest: guestUser.isGuest
+        });
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Provided user ID is not a guest user'
+        });
+      }
+
+      // Check if guest user is already suspended
+      if (guestUser.status === 'suspended') {
+        logger.warn('Guest user already suspended', { guestUserId });
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Guest user has already been synced'
+        });
+      }
+
+      // Find all jobs belonging to guest user
+      const GenerationJob = require('../models/GenerationJob');
+      const jobs = await GenerationJob.find({ userId: guestUserId });
+
+      if (jobs.length === 0) {
+        logger.warn('No jobs found for guest user', { guestUserId });
+        // Still suspend the guest user even if no jobs
+      }
+
+      // Transfer job ownership
+      const updateResult = await GenerationJob.updateMany(
+        { userId: guestUserId },
+        { $set: { userId: actualUserId } }
+      );
+
+      logger.info('Jobs transferred successfully', {
+        guestUserId,
+        actualUserId,
+        jobsTransferred: updateResult.modifiedCount
+      });
+
+      // Soft delete guest user (set status to suspended)
+      guestUser.status = 'suspended';
+      await guestUser.save();
+
+      logger.info('Guest user suspended successfully', {
+        guestUserId,
+        actualUserId
+      });
+
+      // Return success with job details
+      const jobDetails = jobs.map(job => ({
+        jobId: job._id,
+        status: job.status,
+        templateId: job.templateId,
+        createdAt: job.createdAt
+      }));
+
+      res.json({
+        success: true,
+        message: 'Guest job synced successfully',
+        data: {
+          jobsTransferred: updateResult.modifiedCount,
+          jobs: jobDetails,
+          guestUserId,
+          actualUserId
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error syncing guest job:', {
+        error: error.message,
+        stack: error.stack,
+        guestUserId: req.body.guestUserId,
+        actualUserId: req.user?.userId
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to sync guest job'
       });
     }
   }

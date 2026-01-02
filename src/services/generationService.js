@@ -59,9 +59,10 @@ class GenerationService {
   /**
    * Create a new generation job with credit reservation
    * @param {Object} jobData - Generation job data
+   * @param {boolean} isGuest - Whether this is a guest user generation
    * @returns {Promise<Object>} Created job with reservation details
    */
-  async createGenerationJob(jobData) {
+  async createGenerationJob(jobData, isGuest = false) {
     const {
       userId,
       profileId,
@@ -85,7 +86,8 @@ class GenerationService {
         userId,
         profileId,
         templateId,
-        generationContext
+        generationContext,
+        isGuest
       );
 
       logger.info(`Diffusion Model: ${generationContext.diffusionModel}`);
@@ -688,7 +690,7 @@ class GenerationService {
           },
         });
       }
-      
+
 
       // Release reserved credits - handle case where credits might already be processed
       try {
@@ -807,15 +809,16 @@ class GenerationService {
    * @param {string|ObjectId} userId - User ID
    * @param {string|ObjectId} profileId - Business profile ID
    * @param {string|ObjectId} templateId - Template ID
-   * @param {Object} aiProvider - AI provider configuration
-   * @param {string} posterType - Poster type
+   * @param {Object} generationContext - Generation context
+   * @param {boolean} isGuest - Whether this is a guest user generation
    * @returns {Promise<void>} Validation result
    */
   async validateGenerationRequest(
     userId,
     profileId,
     templateId,
-    generationContext
+    generationContext,
+    isGuest = false
   ) {
     // Validate posterType
     const validPosterTypes = ["wish", "cta", "awareness"];
@@ -830,16 +833,36 @@ class GenerationService {
     }
 
     // Validate user exists and has access to profile
-    const profile = await BusinessProfile.getProfileByIdForUser(
-      profileId,
-      userId
-    );
-    if (!profile) {
-      throw new GenerationValidationError(
-        "Business profile not found or access denied",
-        "profileId",
-        profileId
+    let profile;
+
+    if (isGuest) {
+      // For guest users: Only check if profile exists and is active
+      profile = await BusinessProfile.findOne({
+        _id: profileId,
+        isActive: true
+      });
+
+      if (!profile) {
+        throw new GenerationValidationError(
+          "Business profile not found or inactive",
+          "profileId",
+          profileId
+        );
+      }
+    } else {
+      // For regular users: Check ownership
+      profile = await BusinessProfile.getProfileByIdForUser(
+        profileId,
+        userId
       );
+
+      if (!profile) {
+        throw new GenerationValidationError(
+          "Business profile not found or access denied",
+          "profileId",
+          profileId
+        );
+      }
     }
 
     // Validate template exists and is active

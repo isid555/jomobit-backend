@@ -517,6 +517,70 @@ class ProfileService {
   }
 
   /**
+   * Create a guest profile for trial generation
+   * @param {string|ObjectId} userId - Guest user ID
+   * @param {string} nicheId - Niche identifier
+   * @returns {Promise<Object>} Created guest profile
+   */
+  async createGuestProfile(userId, nicheId) {
+    try {
+      logger.info('Creating guest profile', {
+        userId,
+        nicheId,
+        operation: 'createGuestProfile'
+      });
+
+      const randomString = (length) => {
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      };
+
+      // Extract niche name from nicheId (e.g., GUEST_USER_FASHION -> fashion)
+      const nicheName = nicheId.replace('GUEST_USER_', '').toLowerCase();
+
+      const guestProfile = new BusinessProfile({
+        userId,
+        name: `Guest Business ${randomString(4)}`,
+        tagline: `Trial ${nicheName} business`,
+        description: `Guest trial profile for ${nicheName} niche`,
+        niche: nicheName,
+        isActive: true
+      });
+
+      await guestProfile.save();
+
+      logger.info('Guest profile created successfully', {
+        userId,
+        profileId: guestProfile._id,
+        niche: nicheName
+      });
+
+      return {
+        success: true,
+        profile: guestProfile.toObject(),
+        message: 'Guest profile created successfully'
+      };
+
+    } catch (error) {
+      logger.error('Error creating guest profile', {
+        userId,
+        nicheId,
+        error: error.message,
+        stack: error.stack
+      });
+      throw new ProfileOperationError(
+        `Failed to create guest profile: ${error.message}`,
+        'createGuestProfile',
+        userId
+      );
+    }
+  }
+
+  /**
    * Get profile generation summary
    * @param {string|ObjectId} userId - User ID
    * @param {string|ObjectId} profileId - Profile ID
