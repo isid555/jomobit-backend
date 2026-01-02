@@ -76,7 +76,7 @@ const businessProfileSchema = new mongoose.Schema({
   products: [{
     type: String,
     trim: true,
-    maxlength: 100
+    maxlength: 1000
   }],
 
   // Business niche (auto-detected or manually set)
