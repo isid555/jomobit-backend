@@ -702,8 +702,13 @@ class UserService {
       const guestIdentifier = `guest_${Date.now()}_${randomString(8)}`;
       const expiresAt = null // new Date(Date.now() + (24 * 60 * 60 * 1000)); // 24 hours
 
+      // Generate unique placeholder email for guest users
+      // Format: guest_<timestamp>_<random>@internal.jomobit.com
+      const guestEmail = `guest_${Date.now()}_${randomString(8)}@internal.jomobit.com`;
+
       const guestUser = new User({
         auth0Id: guestAuth0Id,
+        email: guestEmail, // Add unique email for guest users
         guestIdentifier,
         isGuest: true,
         status: 'active',
@@ -730,6 +735,7 @@ class UserService {
       logger.info('Guest user created successfully', {
         userId: guestUser._id,
         guestIdentifier,
+        guestEmail,
         auth0Id: guestAuth0Id,
         expiresAt
       });

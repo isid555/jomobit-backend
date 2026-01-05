@@ -78,6 +78,7 @@ class GenerationService {
       templateId,
       creditsRequired,
       generationContext,
+      isGuest,
     });
 
     try {
@@ -93,36 +94,49 @@ class GenerationService {
       logger.info(`Diffusion Model: ${generationContext.diffusionModel}`);
       logger.info(`Diffusion Provider: ${generationContext.diffusionProvider}`);
 
-      // Reserve credits before creating job
+      // Create job with isTrial flag for guest users
       const job = await GenerationJob.createJob({
         userId,
         profileId,
         templateId,
         priority,
-        creditsReserved: creditsRequired,
+        creditsReserved: isGuest ? 0 : creditsRequired,
         generationContext,
+        isTrial: isGuest, // Mark trial jobs
       });
 
-      // Reserve credits with job ID
-      const creditReservation = await this.creditService.reserveCredits(
-        userId,
-        creditsRequired,
-        job._id.toString(),
-        {
-          jobType: "poster_generation",
-          profileId,
-          templateId,
+      let creditReservation = null;
+
+      // Skip credit reservation for trial jobs
+      if (!isGuest) {
+        // Reserve credits with job ID (only for non-trial jobs)
+        creditReservation = await this.creditService.reserveCredits(
+          userId,
+          creditsRequired,
+          job._id.toString(),
+          {
+            jobType: "poster_generation",
+            profileId,
+            templateId,
+            generationContext,
+          }
+        );
+
+        logger.info("Generation job created successfully", {
+          jobId: job._id,
+          userId,
+          creditsReserved: creditsRequired,
+          availableCredits: creditReservation.availableCredits,
           generationContext,
-        }
-      );
-
-      logger.info("Generation job created successfully", {
-        jobId: job._id,
-        userId,
-        creditsReserved: creditsRequired,
-        availableCredits: creditReservation.availableCredits,
-        generationContext,
-      });
+        });
+      } else {
+        logger.info("Trial generation job created successfully (no credits reserved)", {
+          jobId: job._id,
+          userId,
+          isTrial: true,
+          generationContext,
+        });
+      }
 
       // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
       // setImmediate(() => {
@@ -149,11 +163,17 @@ class GenerationService {
       return {
         success: true,
         job: job.getSummary(),
-        creditReservation: {
+        creditReservation: creditReservation ? {
           reserved: creditsRequired,
           availableAfter: creditReservation.availableCredits,
+        } : {
+          reserved: 0,
+          availableAfter: 0,
+          isTrial: true,
         },
-        message: "Generation job created and credits reserved successfully",
+        message: isGuest
+          ? "Trial generation job created successfully (no credits charged)"
+          : "Generation job created and credits reserved successfully",
       };
     } catch (error) {
       logger.error("Error creating generation job", {
@@ -591,6 +611,7 @@ class GenerationService {
       jobId: job._id,
       userId: job.userId,
       hasImageUrl: !!result.imageUrl,
+      isTrial: job.isTrial,
     });
 
     try {
@@ -609,23 +630,32 @@ class GenerationService {
       //     }
       // });
 
-      // Deduct reserved credits
-      await this.creditService.deductReservedCredits(
-        job._id.toString(),
-        job.userId,
-        job.creditsReserved,
-        {
-          completedAt: new Date(),
-          imageUrl: result.imageUrl,
-        }
-      );
+      // Skip credit deduction for trial jobs
+      if (job.isTrial) {
+        logger.info("Trial job completed - skipping credit deduction", {
+          jobId: job._id,
+          userId: job.userId,
+          isTrial: true,
+        });
+      } else {
+        // Deduct reserved credits for non-trial jobs
+        await this.creditService.deductReservedCredits(
+          job._id.toString(),
+          job.userId,
+          job.creditsReserved,
+          {
+            completedAt: new Date(),
+            imageUrl: result.imageUrl,
+          }
+        );
 
-      logger.info("Generation completed successfully", {
-        jobId: job._id,
-        userId: job.userId,
-        imageUrl: result.imageUrl,
-        creditsDeducted: job.creditsReserved,
-      });
+        logger.info("Generation completed successfully", {
+          jobId: job._id,
+          userId: job.userId,
+          imageUrl: result.imageUrl,
+          creditsDeducted: job.creditsReserved,
+        });
+      }
 
       return {
         success: true,
@@ -635,8 +665,11 @@ class GenerationService {
           imageUrl: result.imageUrl,
           thumbnailUrl: result.thumbnailUrl,
         },
-        creditsDeducted: job.creditsReserved,
-        message: "Generation completed successfully",
+        creditsDeducted: job.isTrial ? 0 : job.creditsReserved,
+        isTrial: job.isTrial,
+        message: job.isTrial
+          ? "Trial generation completed successfully (no credits charged)"
+          : "Generation completed successfully",
       };
     } catch (error) {
       logger.error("Error handling generation success", {
@@ -691,6 +724,28 @@ class GenerationService {
         });
       }
 
+      // Skip credit release for trial jobs
+      if (job.isTrial) {
+        logger.info("Trial job failed - skipping credit release", {
+          jobId,
+          userId: job.userId,
+          isTrial: true,
+          errorMessage: error.message,
+        });
+
+        return {
+          success: false,
+          jobId,
+          status: "failed",
+          error: {
+            message: error.message || "Generation failed",
+            code: error.code || "GENERATION_FAILED",
+          },
+          creditsReleased: 0,
+          isTrial: true,
+          message: "Trial generation failed (no credits to release)",
+        };
+      }
 
       // Release reserved credits - handle case where credits might already be processed
       try {
@@ -980,7 +1035,26 @@ class GenerationService {
       // Cancel the job
       await job.cancel(reason);
 
-      // Release reserved credits
+      // Skip credit release for trial jobs
+      if (job.isTrial) {
+        logger.info("Trial job cancelled - skipping credit release", {
+          jobId,
+          userId,
+          isTrial: true,
+          reason,
+        });
+
+        return {
+          success: true,
+          jobId,
+          status: "cancelled",
+          creditsReleased: 0,
+          isTrial: true,
+          message: "Trial job cancelled successfully (no credits to release)",
+        };
+      }
+
+      // Release reserved credits for non-trial jobs
       await this.creditService.releaseReservedCredits(
         job._id.toString(),
         job.userId,

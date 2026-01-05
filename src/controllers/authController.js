@@ -21,6 +21,7 @@ class AuthController {
     this.syncUserRegistration = this.syncUserRegistration.bind(this);
     this.syncUserLogin = this.syncUserLogin.bind(this);
     this.syncGuestJob = this.syncGuestJob.bind(this);
+    this.syncProfileToJob = this.syncProfileToJob.bind(this);
   }
 
 
@@ -727,6 +728,123 @@ class AuthController {
         success: false,
         error: 'Internal Server Error',
         message: 'Failed to sync guest job'
+      });
+    }
+  }
+
+  /**
+   * Sync profile to job (for trial users after creating first profile)
+   * POST /api/auth/sync-profile-to-job
+   * @access Private (requires authentication)
+   */
+  async syncProfileToJob(req, res) {
+    try {
+      const { jobId, profileId } = req.body;
+      const userId = req.user.userId;
+
+      logger.info('Starting profile sync to job', {
+        jobId,
+        profileId,
+        userId,
+        operation: 'syncProfileToJob'
+      });
+
+      // Validate inputs
+      if (!jobId || !profileId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Job ID and Profile ID are required'
+        });
+      }
+
+      // Validate ObjectId formats
+      const mongoose = require('mongoose');
+      if (!mongoose.Types.ObjectId.isValid(jobId) || !mongoose.Types.ObjectId.isValid(profileId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bad Request',
+          message: 'Invalid ID format'
+        });
+      }
+
+      // Find job and verify ownership
+      const GenerationJob = require('../models/GenerationJob');
+      const job = await GenerationJob.findById(jobId);
+
+      if (!job) {
+        logger.warn('Job not found', { jobId });
+        return res.status(404).json({
+          success: false,
+          error: 'Not Found',
+          message: 'Job not found'
+        });
+      }
+
+      if (job.userId.toString() !== userId) {
+        logger.warn('User does not own this job', { jobId, userId, jobUserId: job.userId });
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'You do not have permission to modify this job'
+        });
+      }
+
+      // Find profile and verify ownership
+      const BusinessProfile = require('../models/BusinessProfile');
+      const profile = await BusinessProfile.findById(profileId);
+
+      if (!profile) {
+        logger.warn('Profile not found', { profileId });
+        return res.status(404).json({
+          success: false,
+          error: 'Not Found',
+          message: 'Profile not found'
+        });
+      }
+
+      if (profile.userId.toString() !== userId) {
+        logger.warn('User does not own this profile', { profileId, userId, profileUserId: profile.userId });
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'You do not have permission to use this profile'
+        });
+      }
+
+      // Update job with new profile
+      job.profileId = profileId;
+      await job.save();
+
+      logger.info('Profile synced to job successfully', {
+        jobId,
+        profileId,
+        userId
+      });
+
+      res.json({
+        success: true,
+        message: 'Profile synced to job successfully',
+        data: {
+          jobId: job._id,
+          profileId: job.profileId,
+          status: job.status
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error syncing profile to job:', {
+        error: error.message,
+        stack: error.stack,
+        jobId: req.body.jobId,
+        profileId: req.body.profileId,
+        userId: req.user?.userId
+      });
+
+      res.status(500).json({
+        success: false,
+        error: 'Internal Server Error',
+        message: 'Failed to sync profile to job'
       });
     }
   }

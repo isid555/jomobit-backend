@@ -66,6 +66,13 @@ const generationJobSchema = new mongoose.Schema(
       min: 0,
     },
 
+    // Trial job flag (no credits charged)
+    isTrial: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
     // Full Generation Context
     generationContext: {
       posterType: {
@@ -278,7 +285,8 @@ generationJobSchema.statics = {
       templateId,
       creditsReserved,
       priority = "normal",
-      generationContext
+      generationContext,
+      isTrial = false
     } = jobData;
 
     return this.create({
@@ -287,7 +295,8 @@ generationJobSchema.statics = {
       templateId,
       creditsReserved,
       priority,
-      generationContext
+      generationContext,
+      isTrial
     });
   },
 

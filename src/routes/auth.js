@@ -448,4 +448,43 @@ router.get('/admin/stats', authenticate, requireAdmin(), authController.getUserS
  */
 router.post('/sync-guest-job', authenticate, authController.syncGuestJob);
 
+/**
+ * @swagger
+ * /api/auth/sync-profile-to-job:
+ *   post:
+ *     summary: Sync profile to job (for trial users)
+ *     description: Updates a job's profileId after user creates their first profile
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - jobId
+ *               - profileId
+ *             properties:
+ *               jobId:
+ *                 type: string
+ *                 description: ID of the job to update
+ *               profileId:
+ *                 type: string
+ *                 description: ID of the profile to link
+ *     responses:
+ *       200:
+ *         description: Profile synced successfully
+ *       400:
+ *         description: Bad request
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Job or profile not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/sync-profile-to-job', authenticate, authController.syncProfileToJob);
+
 module.exports = router;
