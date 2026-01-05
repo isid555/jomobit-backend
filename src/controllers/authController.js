@@ -688,6 +688,64 @@ class AuthController {
         jobsTransferred: updateResult.modifiedCount
       });
 
+      // Transfer reservation transactions from guest user to actual user
+      const CreditTransaction = require('../models/CreditTransaction');
+      const CreditWallet = require('../models/CreditWallet');
+
+      // Find all reservation transactions for the guest user's jobs
+      const jobIds = jobs.map(job => job._id.toString());
+      const reservationTransactions = await CreditTransaction.find({
+        userId: guestUserId,
+        type: 'reserve',
+        'reference.type': 'generation',
+        'reference.id': { $in: jobIds }
+      });
+
+      logger.info('Found reservation transactions to transfer', {
+        guestUserId,
+        actualUserId,
+        transactionCount: reservationTransactions.length,
+        jobIds
+      });
+
+      // Transfer each reservation transaction
+      let totalReservedCredits = 0;
+      for (const transaction of reservationTransactions) {
+        // Update transaction to point to actual user
+        transaction.userId = actualUserId;
+        await transaction.save();
+
+        totalReservedCredits += transaction.amount;
+
+        logger.info('Reservation transaction transferred', {
+          transactionId: transaction._id,
+          jobId: transaction.reference.id,
+          amount: transaction.amount,
+          fromUser: guestUserId,
+          toUser: actualUserId
+        });
+      }
+
+      // Update actual user's wallet to reflect reserved credits
+      if (totalReservedCredits > 0) {
+        const actualUserWallet = await CreditWallet.findOne({ userId: actualUserId });
+
+        if (actualUserWallet) {
+          actualUserWallet.reservedCredits += totalReservedCredits;
+          actualUserWallet.lastUpdated = new Date();
+          await actualUserWallet.save();
+
+          logger.info('Actual user wallet updated with reserved credits', {
+            actualUserId,
+            reservedCreditsAdded: totalReservedCredits,
+            newReservedCredits: actualUserWallet.reservedCredits,
+            totalCredits: actualUserWallet.totalCredits
+          });
+        } else {
+          logger.warn('Actual user wallet not found', { actualUserId });
+        }
+      }
+
       // Soft delete guest user (set status to suspended)
       guestUser.status = 'suspended';
       await guestUser.save();

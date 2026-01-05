@@ -66,13 +66,6 @@ const generationJobSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // Trial job flag (no credits charged)
-    isTrial: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-
     // Full Generation Context
     generationContext: {
       posterType: {
