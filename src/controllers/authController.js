@@ -672,8 +672,27 @@ class AuthController {
       const jobs = await GenerationJob.find({ userId: guestUserId });
 
       if (jobs.length === 0) {
-        logger.warn('No jobs found for guest user', { guestUserId });
+        logger.warn('No jobs found for guest user - already synced', { guestUserId });
+
         // Still suspend the guest user even if no jobs
+        guestUser.status = 'suspended';
+        await guestUser.save();
+
+        logger.info('Guest user suspended (no jobs to transfer)', {
+          guestUserId,
+          actualUserId
+        });
+
+        return res.json({
+          success: true,
+          message: 'Guest user already synced (no jobs found)',
+          data: {
+            jobsTransferred: 0,
+            jobs: [],
+            guestUserId,
+            actualUserId
+          }
+        });
       }
 
       // Transfer job ownership
