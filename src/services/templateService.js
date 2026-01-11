@@ -42,6 +42,60 @@ class TemplateService {
     // Default pagination settings
     this.DEFAULT_PAGE_SIZE = 20;
     this.MAX_PAGE_SIZE = 100;
+
+    // Bind methods
+    this.getTagsTypeahead = this.getTagsTypeahead.bind(this);
+  }
+
+  /**
+   * Get tags typeahead suggestions
+   * @param {string} query - Search query for tags
+   * @param {number} limit - Maximum number of results (default: 8, max: 20)
+   * @returns {Promise<Object>} Matching tags with counts
+   */
+  async getTagsTypeahead(query, limit = 8) {
+    try {
+      if (!query || typeof query !== 'string' || query.trim().length === 0) {
+        throw new TemplateValidationError('Query is required and must be a non-empty string');
+      }
+
+      const trimmedQuery = query.trim();
+      const validatedLimit = Math.min(20, Math.max(1, parseInt(limit)));
+
+      logger.info('Getting tags typeahead', {
+        query: trimmedQuery,
+        limit: validatedLimit,
+        operation: 'getTagsTypeahead',
+      });
+
+      const tags = await Template.getTagsTypeahead(trimmedQuery, validatedLimit);
+
+      logger.info('Tags typeahead retrieved successfully', {
+        query: trimmedQuery,
+        resultsCount: tags.length,
+      });
+
+      return {
+        success: true,
+        tags,
+        query: trimmedQuery,
+        total: tags.length,
+      };
+    } catch (error) {
+      if (error instanceof TemplateValidationError) {
+        throw error;
+      }
+
+      logger.error('Error getting tags typeahead', {
+        query,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw new TemplateOperationError(
+        `Failed to get tags typeahead: ${error.message}`,
+        'getTagsTypeahead'
+      );
+    }
   }
 
   /**

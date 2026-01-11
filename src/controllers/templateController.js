@@ -17,6 +17,7 @@ class TemplateController {
     this.getFeaturedTemplates = this.getFeaturedTemplates.bind(this);
     this.getPopularTemplates = this.getPopularTemplates.bind(this);
     this.getRecentTemplates = this.getRecentTemplates.bind(this);
+    this.getTagsTypeahead = this.getTagsTypeahead.bind(this);
     this.createTemplate = this.createTemplate.bind(this);
     this.updateTemplate = this.updateTemplate.bind(this);
     this.deleteTemplate = this.deleteTemplate.bind(this);
@@ -344,6 +345,51 @@ class TemplateController {
         success: false,
         error: "Internal server error",
         message: "Failed to fetch recent templates",
+      });
+    }
+  }
+
+  /**
+   * Get tags typeahead suggestions
+   * GET /api/templates/tags/typeahead
+   */
+  async getTagsTypeahead(req, res) {
+    try {
+      const { q: query, limit = 8 } = req.query;
+
+      if (!query || query.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: "Query parameter 'q' is required",
+        });
+      }
+
+      const result = await this.templateService.getTagsTypeahead(
+        query.trim(),
+        parseInt(limit)
+      );
+
+      res.json({
+        success: true,
+        tags: result.tags,
+        query: result.query,
+        total: result.total,
+      });
+    } catch (error) {
+      if (error.name === "TemplateValidationError") {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: error.message,
+        });
+      }
+
+      logger.error("Error fetching tags typeahead:", error);
+      res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: "Failed to fetch tags suggestions",
       });
     }
   }
