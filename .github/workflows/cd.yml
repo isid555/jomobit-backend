@@ -1,0 +1,478 @@
+name: Continuous Deployment - JOMO Backend
+
+on:
+  repository_dispatch:
+    types: [deploy-production, deploy-staging]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      image_tag:
+        description: 'Docker image tag to deploy (e.g., main-abc123)'
+        required: false
+        type: string
+      action:
+        description: 'Deployment action'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - rollback
+
+env:
+  DOCKER_IMAGE: ai29/jomo-backend
+  CONTAINER_NAME: jomo-backend
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-production') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production' && github.event.inputs.action == 'deploy')
+    
+    environment:
+      name: production
+      url: https://api.jomo.dazzeldigital.com
+    
+    steps:
+      - name: Set deployment variables
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "image_tag=${{ github.event.client_payload.image_tag }}" >> $GITHUB_OUTPUT
+            echo "commit_sha=${{ github.event.client_payload.commit_sha }}" >> $GITHUB_OUTPUT
+            echo "environment=production" >> $GITHUB_OUTPUT
+          else
+            echo "image_tag=${{ github.event.inputs.image_tag || 'latest' }}" >> $GITHUB_OUTPUT
+            echo "commit_sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Deploy via Bastion Host
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USER }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          port: ${{ secrets.BASTION_PORT || 22 }}
+          timeout: 300s
+          script: |
+            # Create SSH key for backend server access
+            echo "${{ secrets.BACKEND_SSH_KEY }}" > /tmp/backend_key
+            chmod 600 /tmp/backend_key
+            
+            # SSH into the backend server through bastion
+            ssh -i /tmp/backend_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
+            
+            set -e  # Exit on any error
+            
+            # Deployment variables
+            export DOCKER_IMAGE="${{ env.DOCKER_IMAGE }}"
+            export IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
+            export CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
+            export NEW_CONTAINER_NAME="${CONTAINER_NAME}-new"
+            
+            echo "=== Starting Zero-Downtime Deployment ==="
+            echo "Image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+            echo "Container: ${CONTAINER_NAME}"
+            echo "Triggered by: ${{ github.event_name }}"
+            
+            # Pull the latest image
+            echo "📦 Pulling Docker image..."
+            docker pull ${DOCKER_IMAGE}:${IMAGE_TAG}
+            
+            # Start new container with different name (Blue-Green deployment)
+            echo "🚀 Starting new container..."
+            docker run -d \
+              --name ${NEW_CONTAINER_NAME} \
+              --restart unless-stopped \
+              -p 3001:3000 \
+              -e NODE_ENV=production \
+              -e PORT=3000 \
+              -e FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
+              -e MONGODB_URI="${{ secrets.MONGODB_URI }}" \
+              -e REDIS_URL="${{ secrets.REDIS_URL }}" \
+              -e LOG_LEVEL="${{ secrets.LOG_LEVEL || 'info' }}" \
+              -e AUTH0_DOMAIN="${{ secrets.AUTH0_DOMAIN }}" \
+              -e AUTH0_AUDIENCE="${{ secrets.AUTH0_AUDIENCE }}" \
+              -e AUTH0_CLIENT_ID="${{ secrets.AUTH0_CLIENT_ID }}" \
+              -e AUTH0_CLIENT_SECRET="${{ secrets.AUTH0_CLIENT_SECRET }}" \
+              -e AUTH0_WEBHOOK_SECRET="${{ secrets.AUTH0_WEBHOOK_SECRET }}" \
+              -e AUTH0_ACTIONS_SECRET="${{ secrets.AUTH0_ACTIONS_SECRET }}" \
+              -e RAZORPAY_KEY_ID="${{ secrets.RAZORPAY_KEY_ID }}" \
+              -e RAZORPAY_KEY_SECRET="${{ secrets.RAZORPAY_KEY_SECRET }}" \
+              -e RAZORPAY_WEBHOOK_SECRET="${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" \
+              -e DEFAULT_USER_CREDITS="${{ secrets.DEFAULT_USER_CREDITS || '3' }}" \
+              -e SUBSCRIPTION_RECONCILIATION_ENABLED="${{ secrets.SUBSCRIPTION_RECONCILIATION_ENABLED || 'true' }}" \
+              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+              -e IDEOGRAM_API_KEY="${{ secrets.IDEOGRAM_API_KEY }}" \
+              -e FAL_KEY="${{ secrets.FAL_KEY }}" \
+              -e IMAGEKIT_PUBLIC_KEY="${{ secrets.IMAGEKIT_PUBLIC_KEY }}" \
+              -e IMAGEKIT_PRIVATE_KEY="${{ secrets.IMAGEKIT_PRIVATE_KEY }}" \
+              -e IMAGEKIT_URL_ENDPOINT="${{ secrets.IMAGEKIT_URL_ENDPOINT }}" \
+              -e SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -e N8N_WEBHOOK_URL="${{ secrets.N8N_WEBHOOK_URL }}" \
+              -e N8N_JWT_SECRET="${{ secrets.N8N_JWT_SECRET }}" \
+              -e N8N_REQUEST_KEY="${{ secrets.N8N_REQUEST_KEY }}" \
+              -e N8N_GENERATION_FLOW_ID="${{ secrets.N8N_GENERATION_FLOW_ID }}" \
+              -e N8N_ENHANCEMENT_FLOW_ID="${{ secrets.N8N_ENHANCEMENT_FLOW_ID }}" \
+              ${DOCKER_IMAGE}:${IMAGE_TAG}
+            
+            # Wait for new container to be ready
+            echo "⏳ Waiting for new container to start..."
+            sleep 15
+            
+            # Health check on new container
+            echo "🏥 Performing health check on new container..."
+            HEALTH_CHECK_PASSED=false
+            for i in {1..30}; do
+              if curl -f -s http://localhost:3001/health > /dev/null 2>&1; then
+                echo "✅ Health check passed on attempt $i!"
+                HEALTH_CHECK_PASSED=true
+                break
+              fi
+              echo "❌ Health check attempt $i failed, retrying in 5 seconds..."
+              sleep 5
+            done
+            
+            if [ "$HEALTH_CHECK_PASSED" = false ]; then
+              echo "🚨 Health check failed! Rolling back..."
+              docker stop ${NEW_CONTAINER_NAME} || true
+              docker rm ${NEW_CONTAINER_NAME} || true
+              exit 1
+            fi
+            
+            # Switch traffic (Blue-Green switch)
+            echo "🔄 Switching traffic to new container..."
+            
+            # Stop old container
+            if docker ps -q -f name=${CONTAINER_NAME} | grep -q .; then
+              echo "🛑 Stopping old container..."
+              docker stop ${CONTAINER_NAME} || true
+              docker rm ${CONTAINER_NAME} || true
+            fi
+            
+            # Rename new container to production name and switch port
+            echo "🔀 Switching to production..."
+            docker stop ${NEW_CONTAINER_NAME}
+            docker rm ${NEW_CONTAINER_NAME}
+            
+            # Start final production container
+            docker run -d \
+              --name ${CONTAINER_NAME} \
+              --restart unless-stopped \
+              -p 3000:3000 \
+              -e NODE_ENV=production \
+              -e PORT=3000 \
+              -e FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
+              -e MONGODB_URI="${{ secrets.MONGODB_URI }}" \
+              -e REDIS_URL="${{ secrets.REDIS_URL }}" \
+              -e LOG_LEVEL="${{ secrets.LOG_LEVEL || 'info' }}" \
+              -e AUTH0_DOMAIN="${{ secrets.AUTH0_DOMAIN }}" \
+              -e AUTH0_AUDIENCE="${{ secrets.AUTH0_AUDIENCE }}" \
+              -e AUTH0_CLIENT_ID="${{ secrets.AUTH0_CLIENT_ID }}" \
+              -e AUTH0_CLIENT_SECRET="${{ secrets.AUTH0_CLIENT_SECRET }}" \
+              -e AUTH0_WEBHOOK_SECRET="${{ secrets.AUTH0_WEBHOOK_SECRET }}" \
+              -e AUTH0_ACTIONS_SECRET="${{ secrets.AUTH0_ACTIONS_SECRET }}" \
+              -e RAZORPAY_KEY_ID="${{ secrets.RAZORPAY_KEY_ID }}" \
+              -e RAZORPAY_KEY_SECRET="${{ secrets.RAZORPAY_KEY_SECRET }}" \
+              -e RAZORPAY_WEBHOOK_SECRET="${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" \
+              -e DEFAULT_USER_CREDITS="${{ secrets.DEFAULT_USER_CREDITS || '3' }}" \
+              -e SUBSCRIPTION_RECONCILIATION_ENABLED="${{ secrets.SUBSCRIPTION_RECONCILIATION_ENABLED || 'true' }}" \
+              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+              -e IDEOGRAM_API_KEY="${{ secrets.IDEOGRAM_API_KEY }}" \
+              -e FAL_KEY="${{ secrets.FAL_KEY }}" \
+              -e IMAGEKIT_PUBLIC_KEY="${{ secrets.IMAGEKIT_PUBLIC_KEY }}" \
+              -e IMAGEKIT_PRIVATE_KEY="${{ secrets.IMAGEKIT_PRIVATE_KEY }}" \
+              -e IMAGEKIT_URL_ENDPOINT="${{ secrets.IMAGEKIT_URL_ENDPOINT }}" \
+              -e SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -e N8N_WEBHOOK_URL="${{ secrets.N8N_WEBHOOK_URL }}" \
+              -e N8N_JWT_SECRET="${{ secrets.N8N_JWT_SECRET }}" \
+              -e N8N_REQUEST_KEY="${{ secrets.N8N_REQUEST_KEY }}" \
+              -e N8N_GENERATION_FLOW_ID="${{ secrets.N8N_GENERATION_FLOW_ID }}" \
+              -e N8N_ENHANCEMENT_FLOW_ID="${{ secrets.N8N_ENHANCEMENT_FLOW_ID }}" \
+              ${DOCKER_IMAGE}:${IMAGE_TAG}
+            
+            # Final health check
+            echo "🏥 Final health check..."
+            sleep 10
+            for i in {1..15}; do
+              if curl -f -s http://localhost:3000/health > /dev/null 2>&1; then
+                echo "✅ Production deployment successful!"
+                break
+              fi
+              echo "⏳ Final health check attempt $i..."
+              sleep 3
+            done
+            
+            # Clean up old images (keep last 5)
+            echo "🧹 Cleaning up old images..."
+            docker images ${DOCKER_IMAGE} --format "table {{.Repository}}:{{.Tag}}\t{{.CreatedAt}}" | tail -n +2 | sort -k2 -r | tail -n +6 | awk '{print $1}' | xargs -r docker rmi || true
+            
+            echo "🎉 Zero-downtime deployment completed successfully!"
+            echo "📊 Container status:"
+            docker ps -f name=${CONTAINER_NAME}
+            
+            ENDSSH
+            
+            # Clean up temporary key
+            rm -f /tmp/backend_key
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-staging') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging' && github.event.inputs.action == 'deploy')
+    
+    environment:
+      name: staging
+      url: https://staging-api.jomo.dazzeldigital.com
+    
+    steps:
+      - name: Set deployment variables
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "image_tag=${{ github.event.client_payload.image_tag }}" >> $GITHUB_OUTPUT
+            echo "commit_sha=${{ github.event.client_payload.commit_sha }}" >> $GITHUB_OUTPUT
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          else
+            echo "image_tag=${{ github.event.inputs.image_tag || 'latest' }}" >> $GITHUB_OUTPUT
+            echo "commit_sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Deploy to Staging via Bastion Host
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USER }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          port: ${{ secrets.BASTION_PORT || 22 }}
+          timeout: 300s
+          script: |
+            # Create SSH key for backend server access
+            echo "${{ secrets.BACKEND_SSH_KEY }}" > /tmp/backend_key
+            chmod 600 /tmp/backend_key
+            
+            # SSH into the backend server through bastion
+            ssh -i /tmp/backend_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
+            
+            set -e  # Exit on any error
+            
+            # Deployment variables for staging
+            export DOCKER_IMAGE="${{ env.DOCKER_IMAGE }}"
+            export IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
+            export CONTAINER_NAME="${{ env.CONTAINER_NAME }}-staging"
+            export NEW_CONTAINER_NAME="${CONTAINER_NAME}-new"
+            
+            echo "=== Starting Staging Deployment ==="
+            echo "Image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+            echo "Container: ${CONTAINER_NAME}"
+            echo "Triggered by: ${{ github.event_name }}"
+            
+            # Pull the latest image
+            echo "📦 Pulling Docker image..."
+            docker pull ${DOCKER_IMAGE}:${IMAGE_TAG}
+            
+            # Stop existing staging container if exists
+            if docker ps -q -f name=${CONTAINER_NAME} | grep -q .; then
+              echo "🛑 Stopping existing staging container..."
+              docker stop ${CONTAINER_NAME} || true
+              docker rm ${CONTAINER_NAME} || true
+            fi
+            
+            # Start staging container on port 3002
+            echo "🚀 Starting staging container..."
+            docker run -d \
+              --name ${CONTAINER_NAME} \
+              --restart unless-stopped \
+              -p 3002:3000 \
+              -e NODE_ENV=staging \
+              -e PORT=3000 \
+              -e FRONTEND_URL="${{ secrets.STAGING_FRONTEND_URL || secrets.FRONTEND_URL }}" \
+              -e MONGODB_URI="${{ secrets.STAGING_MONGODB_URI || secrets.MONGODB_URI }}" \
+              -e REDIS_URL="${{ secrets.STAGING_REDIS_URL || secrets.REDIS_URL }}" \
+              -e LOG_LEVEL="${{ secrets.LOG_LEVEL || 'debug' }}" \
+              -e AUTH0_DOMAIN="${{ secrets.STAGING_AUTH0_DOMAIN || secrets.AUTH0_DOMAIN }}" \
+              -e AUTH0_AUDIENCE="${{ secrets.STAGING_AUTH0_AUDIENCE || secrets.AUTH0_AUDIENCE }}" \
+              -e AUTH0_CLIENT_ID="${{ secrets.STAGING_AUTH0_CLIENT_ID || secrets.AUTH0_CLIENT_ID }}" \
+              -e AUTH0_CLIENT_SECRET="${{ secrets.STAGING_AUTH0_CLIENT_SECRET || secrets.AUTH0_CLIENT_SECRET }}" \
+              -e AUTH0_WEBHOOK_SECRET="${{ secrets.STAGING_AUTH0_WEBHOOK_SECRET || secrets.AUTH0_WEBHOOK_SECRET }}" \
+              -e AUTH0_ACTIONS_SECRET="${{ secrets.STAGING_AUTH0_ACTIONS_SECRET || secrets.AUTH0_ACTIONS_SECRET }}" \
+              -e RAZORPAY_KEY_ID="${{ secrets.STAGING_RAZORPAY_KEY_ID || secrets.RAZORPAY_KEY_ID }}" \
+              -e RAZORPAY_KEY_SECRET="${{ secrets.STAGING_RAZORPAY_KEY_SECRET || secrets.RAZORPAY_KEY_SECRET }}" \
+              -e RAZORPAY_WEBHOOK_SECRET="${{ secrets.STAGING_RAZORPAY_WEBHOOK_SECRET || secrets.RAZORPAY_WEBHOOK_SECRET }}" \
+              -e DEFAULT_USER_CREDITS="${{ secrets.DEFAULT_USER_CREDITS || '10' }}" \
+              -e SUBSCRIPTION_RECONCILIATION_ENABLED="${{ secrets.SUBSCRIPTION_RECONCILIATION_ENABLED || 'false' }}" \
+              -e OPENAI_API_KEY="${{ secrets.STAGING_OPENAI_API_KEY || secrets.OPENAI_API_KEY }}" \
+              -e GEMINI_API_KEY="${{ secrets.STAGING_GEMINI_API_KEY || secrets.GEMINI_API_KEY }}" \
+              -e IDEOGRAM_API_KEY="${{ secrets.STAGING_IDEOGRAM_API_KEY || secrets.IDEOGRAM_API_KEY }}" \
+              -e FAL_KEY="${{ secrets.STAGING_FAL_KEY || secrets.FAL_KEY }}" \
+              -e IMAGEKIT_PUBLIC_KEY="${{ secrets.STAGING_IMAGEKIT_PUBLIC_KEY || secrets.IMAGEKIT_PUBLIC_KEY }}" \
+              -e IMAGEKIT_PRIVATE_KEY="${{ secrets.STAGING_IMAGEKIT_PRIVATE_KEY || secrets.IMAGEKIT_PRIVATE_KEY }}" \
+              -e IMAGEKIT_URL_ENDPOINT="${{ secrets.STAGING_IMAGEKIT_URL_ENDPOINT || secrets.IMAGEKIT_URL_ENDPOINT }}" \
+              -e SLACK_WEBHOOK_URL="${{ secrets.STAGING_SLACK_WEBHOOK_URL || secrets.SLACK_WEBHOOK_URL }}" \
+              -e N8N_WEBHOOK_URL="${{ secrets.STAGING_N8N_WEBHOOK_URL || secrets.N8N_WEBHOOK_URL }}" \
+              -e N8N_JWT_SECRET="${{ secrets.STAGING_N8N_JWT_SECRET || secrets.N8N_JWT_SECRET }}" \
+              -e N8N_REQUEST_KEY="${{ secrets.STAGING_N8N_REQUEST_KEY || secrets.N8N_REQUEST_KEY }}" \
+              -e N8N_GENERATION_FLOW_ID="${{ secrets.STAGING_N8N_GENERATION_FLOW_ID || secrets.N8N_GENERATION_FLOW_ID }}" \
+              -e N8N_ENHANCEMENT_FLOW_ID="${{ secrets.STAGING_N8N_ENHANCEMENT_FLOW_ID || secrets.N8N_ENHANCEMENT_FLOW_ID }}" \
+              ${DOCKER_IMAGE}:${IMAGE_TAG}
+            
+            # Health check
+            echo "🏥 Performing staging health check..."
+            sleep 10
+            for i in {1..20}; do
+              if curl -f -s http://localhost:3002/health > /dev/null 2>&1; then
+                echo "✅ Staging deployment successful!"
+                break
+              fi
+              echo "⏳ Health check attempt $i..."
+              sleep 3
+            done
+            
+            echo "🎉 Staging deployment completed!"
+            echo "📊 Container status:"
+            docker ps -f name=${CONTAINER_NAME}
+            
+            ENDSSH
+            
+            # Clean up temporary key
+            rm -f /tmp/backend_key
+
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'rollback'
+    
+    environment:
+      name: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Rollback to Previous Version
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.BASTION_HOST }}
+          username: ${{ secrets.BASTION_USER }}
+          key: ${{ secrets.BASTION_SSH_KEY }}
+          port: ${{ secrets.BASTION_PORT || 22 }}
+          script: |
+            # Create SSH key for backend server access
+            echo "${{ secrets.BACKEND_SSH_KEY }}" > /tmp/backend_key
+            chmod 600 /tmp/backend_key
+            
+            ssh -i /tmp/backend_key -o StrictHostKeyChecking=no ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
+            
+            set -e
+            
+            echo "🔄 Starting rollback process for ${{ github.event.inputs.environment }}..."
+            
+            # Set container name based on environment
+            if [ "${{ github.event.inputs.environment }}" = "staging" ]; then
+              CONTAINER_NAME="${{ env.CONTAINER_NAME }}-staging"
+              PORT="3002"
+            else
+              CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
+              PORT="3000"
+            fi
+            
+            # Get the previous image (second most recent)
+            PREVIOUS_IMAGE=$(docker images ${{ env.DOCKER_IMAGE }} --format "table {{.Repository}}:{{.Tag}}" | tail -n +2 | head -n 2 | tail -n 1 | awk '{print $1}')
+            
+            if [ -z "$PREVIOUS_IMAGE" ]; then
+              echo "❌ No previous image found for rollback"
+              exit 1
+            fi
+            
+            echo "📦 Rolling back to: $PREVIOUS_IMAGE"
+            
+            # Stop current container
+            echo "🛑 Stopping current container..."
+            docker stop $CONTAINER_NAME || true
+            docker rm $CONTAINER_NAME || true
+            
+            # Start previous version with appropriate environment
+            echo "🚀 Starting previous version..."
+            if [ "${{ github.event.inputs.environment }}" = "staging" ]; then
+              # Staging rollback
+              docker run -d \
+                --name $CONTAINER_NAME \
+                --restart unless-stopped \
+                -p $PORT:3000 \
+                -e NODE_ENV=staging \
+                -e PORT=3000 \
+                -e FRONTEND_URL="${{ secrets.STAGING_FRONTEND_URL || secrets.FRONTEND_URL }}" \
+                -e MONGODB_URI="${{ secrets.STAGING_MONGODB_URI || secrets.MONGODB_URI }}" \
+                -e REDIS_URL="${{ secrets.STAGING_REDIS_URL || secrets.REDIS_URL }}" \
+                -e LOG_LEVEL="${{ secrets.LOG_LEVEL || 'debug' }}" \
+                $PREVIOUS_IMAGE
+            else
+              # Production rollback
+              docker run -d \
+                --name $CONTAINER_NAME \
+                --restart unless-stopped \
+                -p $PORT:3000 \
+                -e NODE_ENV=production \
+                -e PORT=3000 \
+                -e FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
+                -e MONGODB_URI="${{ secrets.MONGODB_URI }}" \
+                -e REDIS_URL="${{ secrets.REDIS_URL }}" \
+                -e LOG_LEVEL="${{ secrets.LOG_LEVEL || 'info' }}" \
+                -e AUTH0_DOMAIN="${{ secrets.AUTH0_DOMAIN }}" \
+                -e AUTH0_AUDIENCE="${{ secrets.AUTH0_AUDIENCE }}" \
+                -e AUTH0_CLIENT_ID="${{ secrets.AUTH0_CLIENT_ID }}" \
+                -e AUTH0_CLIENT_SECRET="${{ secrets.AUTH0_CLIENT_SECRET }}" \
+                -e AUTH0_WEBHOOK_SECRET="${{ secrets.AUTH0_WEBHOOK_SECRET }}" \
+                -e AUTH0_ACTIONS_SECRET="${{ secrets.AUTH0_ACTIONS_SECRET }}" \
+                -e RAZORPAY_KEY_ID="${{ secrets.RAZORPAY_KEY_ID }}" \
+                -e RAZORPAY_KEY_SECRET="${{ secrets.RAZORPAY_KEY_SECRET }}" \
+                -e RAZORPAY_WEBHOOK_SECRET="${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" \
+                -e DEFAULT_USER_CREDITS="${{ secrets.DEFAULT_USER_CREDITS || '3' }}" \
+                -e SUBSCRIPTION_RECONCILIATION_ENABLED="${{ secrets.SUBSCRIPTION_RECONCILIATION_ENABLED || 'true' }}" \
+                -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+                -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+                -e IDEOGRAM_API_KEY="${{ secrets.IDEOGRAM_API_KEY }}" \
+                -e FAL_KEY="${{ secrets.FAL_KEY }}" \
+                -e IMAGEKIT_PUBLIC_KEY="${{ secrets.IMAGEKIT_PUBLIC_KEY }}" \
+                -e IMAGEKIT_PRIVATE_KEY="${{ secrets.IMAGEKIT_PRIVATE_KEY }}" \
+                -e IMAGEKIT_URL_ENDPOINT="${{ secrets.IMAGEKIT_URL_ENDPOINT }}" \
+                -e SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}" \
+                -e N8N_WEBHOOK_URL="${{ secrets.N8N_WEBHOOK_URL }}" \
+                -e N8N_JWT_SECRET="${{ secrets.N8N_JWT_SECRET }}" \
+                -e N8N_REQUEST_KEY="${{ secrets.N8N_REQUEST_KEY }}" \
+                -e N8N_GENERATION_FLOW_ID="${{ secrets.N8N_GENERATION_FLOW_ID }}" \
+                -e N8N_ENHANCEMENT_FLOW_ID="${{ secrets.N8N_ENHANCEMENT_FLOW_ID }}" \
+                $PREVIOUS_IMAGE
+            fi
+            
+            # Health check
+            echo "🏥 Performing rollback health check..."
+            sleep 10
+            for i in {1..20}; do
+              if curl -f -s http://localhost:$PORT/health > /dev/null 2>&1; then
+                echo "✅ Rollback completed successfully!"
+                exit 0
+              fi
+              echo "⏳ Health check attempt $i..."
+              sleep 3
+            done
+            
+            echo "❌ Rollback health check failed!"
+            exit 1
+            
+            ENDSSH
+            
+            # Clean up temporary key
+            rm -f /tmp/backend_key
