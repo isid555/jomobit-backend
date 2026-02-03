@@ -181,23 +181,47 @@ jobs:
           port: ${{ secrets.BASTION_PORT || 22 }}
           timeout: 300s
           script: |
-            echo "🔗 Connecting to backend server..."
+            echo "🔗 Setting up SSH connection to backend server..."
             echo "Bastion: ${{ secrets.BASTION_HOST }}"
             echo "Backend: ${{ secrets.BACKEND_HOST }}"
             echo "User: ${{ secrets.BACKEND_USER }}"
             
-            # Test connection first
-            if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} 'echo "Connection test successful"'; then
+            # Option 1: Use existing key on bastion (if BACKEND_SSH_KEY is not provided)
+            if [ -f ~/.ssh/Dazzle_Api_key.pem ]; then
+              echo "📝 Using existing Dazzle_Api_key.pem from bastion host"
+              BACKEND_KEY_PATH="~/.ssh/Dazzle_Api_key.pem"
+              chmod 600 ~/.ssh/Dazzle_Api_key.pem
+            else
+              # Option 2: Use provided BACKEND_SSH_KEY
+              echo "📝 Setting up SSH key for backend connection from GitHub secret..."
+              echo "${{ secrets.BACKEND_SSH_KEY }}" > /tmp/backend_key
+              chmod 600 /tmp/backend_key
+              BACKEND_KEY_PATH="/tmp/backend_key"
+            fi
+            
+            # Test connection to backend server
+            echo "🧪 Testing connection to backend server..."
+            if ! ssh -i ${BACKEND_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} 'echo "Connection test successful"'; then
               echo "❌ Cannot connect to backend server"
-              echo "Please check:"
-              echo "1. BACKEND_HOST secret is set to: 10.0.2.227"
-              echo "2. BACKEND_USER secret is set to: ubuntu"
-              echo "3. SSH key access is configured"
+              echo "Debugging information:"
+              echo "- Trying to connect to: ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }}"
+              echo "- Using SSH key path: ${BACKEND_KEY_PATH}"
+              echo "- Available keys on bastion:"
+              ls -la ~/.ssh/
+              
+              # Try with verbose SSH for debugging
+              echo "🔍 Attempting verbose SSH connection..."
+              ssh -i ${BACKEND_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 -v ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} 'echo "Verbose connection test"' 2>&1 | head -20
+              
+              # Clean up if we created a temp key
+              [ -f /tmp/backend_key ] && rm -f /tmp/backend_key
               exit 1
             fi
             
+            echo "✅ Backend connection successful!"
+            
             # SSH into the backend server through bastion
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
+            ssh -i ${BACKEND_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
             
             set -euo pipefail  # Exit on any error, undefined variables, or pipe failures
             
@@ -344,6 +368,10 @@ jobs:
             $DOCKER_CMD logs ${CONTAINER_NAME} --tail 10
             
             ENDSSH
+            
+            # Clean up temporary key if we created one
+            [ -f /tmp/backend_key ] && rm -f /tmp/backend_key
+            echo "🧹 Deployment completed and cleaned up"
 
   # Rollback deployment
   rollback:
