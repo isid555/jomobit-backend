@@ -347,6 +347,7 @@ jobs:
               -e NODE_ENV=${ENVIRONMENT} \
               -e PORT=3000 \
               -e FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
+              -e ALLOWED_ORIGINS="${{ secrets.ALLOWED_ORIGINS }}" \
               -e MONGODB_URI="${{ secrets.MONGODB_URI }}" \
               -e REDIS_URL="${{ secrets.REDIS_URL }}" \
               -e LOG_LEVEL="${{ secrets.LOG_LEVEL || 'info' }}" \
