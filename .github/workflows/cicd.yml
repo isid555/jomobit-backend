@@ -92,7 +92,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix={{branch}}-,format=short
             type=raw,value=latest,enable={{is_default_branch}}
       
       - name: Build and push Docker image
@@ -108,20 +108,30 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
       
+      - name: Show built tags
+        run: |
+          echo "🏷️ Tags that were built and pushed:"
+          echo "${{ steps.meta.outputs.tags }}" | tr ',' '\n'
+          echo ""
+          echo "📋 Image digest: ${{ steps.build.outputs.digest }}"
+      
       - name: Check deployment conditions
         id: check
         run: |
           if [[ "${{ github.event_name }}" == "push" && ("${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/feature/enhance-generation") ]]; then
             echo "should-deploy=true" >> $GITHUB_OUTPUT
             
+            # Use short SHA (7 characters) to match Docker tag format
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            
             if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
               echo "environment=production" >> $GITHUB_OUTPUT
-              echo "image-tag=main-${{ github.sha }}" >> $GITHUB_OUTPUT
+              echo "image-tag=main-${SHORT_SHA}" >> $GITHUB_OUTPUT
               echo "container-name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
               echo "port=3000" >> $GITHUB_OUTPUT
             elif [[ "${{ github.ref }}" == "refs/heads/feature/enhance-generation" ]]; then
               echo "environment=staging" >> $GITHUB_OUTPUT
-              echo "image-tag=feature-enhance-generation-${{ github.sha }}" >> $GITHUB_OUTPUT
+              echo "image-tag=feature-enhance-generation-${SHORT_SHA}" >> $GITHUB_OUTPUT
               echo "container-name=${{ env.CONTAINER_NAME }}-staging" >> $GITHUB_OUTPUT
               echo "port=3002" >> $GITHUB_OUTPUT
             fi
@@ -132,7 +142,7 @@ jobs:
             IMAGE_TAG="${{ github.event.inputs.image_tag }}"
             if [ -z "$IMAGE_TAG" ]; then
               if [ "${{ github.event.inputs.environment }}" == "staging" ]; then
-                IMAGE_TAG="develop"
+                IMAGE_TAG="feature-enhance-generation"
               else
                 IMAGE_TAG="latest"
               fi
@@ -150,6 +160,10 @@ jobs:
           else
             echo "should-deploy=false" >> $GITHUB_OUTPUT
           fi
+          
+          # Debug: Show what tags were actually created
+          echo "🏷️ Available Docker tags from build:"
+          echo "${{ steps.meta.outputs.tags }}"
       
       - name: Image scan (optional security check)
         if: github.event_name == 'pull_request'
@@ -237,6 +251,8 @@ jobs:
             echo "Image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
             echo "Container: ${CONTAINER_NAME}"
             echo "Port: ${PORT}"
+            echo "GitHub SHA: ${{ github.sha }}"
+            echo "Short SHA: $(echo "${{ github.sha }}" | cut -c1-7)"
             
             # Function to handle errors
             handle_error() {
@@ -273,10 +289,46 @@ jobs:
             
             echo "✅ Docker access confirmed"
             
-            # Pull the latest image
+            # Pull the latest image with improved tag handling
             echo "📦 Pulling Docker image..."
-            if ! $DOCKER_CMD pull ${DOCKER_IMAGE}:${IMAGE_TAG}; then
-              handle_error "Failed to pull Docker image ${DOCKER_IMAGE}:${IMAGE_TAG}"
+            echo "🏷️ Target image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+            
+            # Function to try pulling with different tag strategies
+            pull_image() {
+              local tag_to_try="$1"
+              echo "🔍 Trying to pull: ${DOCKER_IMAGE}:${tag_to_try}"
+              if $DOCKER_CMD pull ${DOCKER_IMAGE}:${tag_to_try}; then
+                IMAGE_TAG=${tag_to_try}
+                echo "✅ Successfully pulled: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+                return 0
+              fi
+              return 1
+            }
+            
+            # Try different tag strategies
+            if ! pull_image "${IMAGE_TAG}"; then
+              echo "❌ Failed to pull ${DOCKER_IMAGE}:${IMAGE_TAG}"
+              echo "🔍 Trying alternative tag strategies..."
+              
+              # Extract branch and SHA parts
+              if [[ "${IMAGE_TAG}" =~ ^(.+)-([a-f0-9]+)$ ]]; then
+                BRANCH_PART="${BASH_REMATCH[1]}"
+                SHA_PART="${BASH_REMATCH[2]}"
+                
+                # Try with just branch name
+                if pull_image "${BRANCH_PART}"; then
+                  echo "✅ Pulled using branch tag"
+                elif pull_image "latest"; then
+                  echo "✅ Pulled using latest tag as fallback"
+                else
+                  handle_error "Failed to pull Docker image with any tag strategy"
+                fi
+              else
+                # If tag doesn't match expected pattern, try latest
+                if ! pull_image "latest"; then
+                  handle_error "Failed to pull Docker image"
+                fi
+              fi
             fi
             
             # Stop existing container if exists
