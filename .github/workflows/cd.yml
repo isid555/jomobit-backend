@@ -1,6 +1,8 @@
-name: Continuous Deployment - JOMO Backend (Manual)
+name: Continuous Deployment - JOMO Backend
 
 on:
+  repository_dispatch:
+    types: [deploy-production]
   workflow_dispatch:
     inputs:
       environment:
@@ -29,15 +31,52 @@ env:
   CONTAINER_NAME: jomo-backend
 
 jobs:
-  manual-deploy:
-    name: Manual Deploy to ${{ github.event.inputs.environment }}
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'production' }}
     runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'deploy'
+    if: |
+      (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-production') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     
     environment:
-      name: ${{ github.event.inputs.environment }}
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ github.event.inputs.environment == 'staging' && 'https://staging-api.jomo.dazzeldigital.com' || 'https://api.jomo.dazzeldigital.com' }}
     
     steps:
+      - name: Set deployment variables
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "image_tag=${{ github.event.client_payload.image_tag }}" >> $GITHUB_OUTPUT
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
+            echo "port=3000" >> $GITHUB_OUTPUT
+          else
+            ENV="${{ github.event.inputs.environment }}"
+            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+            
+            # Set default image tag if not provided
+            if [ -z "$IMAGE_TAG" ]; then
+              if [ "$ENV" == "staging" ]; then
+                IMAGE_TAG="develop"
+              else
+                IMAGE_TAG="latest"
+              fi
+            fi
+            
+            echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+            echo "environment=$ENV" >> $GITHUB_OUTPUT
+            
+            # Set container name and port based on environment
+            if [ "$ENV" == "staging" ]; then
+              echo "container_name=${{ env.CONTAINER_NAME }}-staging" >> $GITHUB_OUTPUT
+              echo "port=3002" >> $GITHUB_OUTPUT
+            else
+              echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
+              echo "port=3000" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
       - name: Deploy via Bastion Host
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -47,46 +86,67 @@ jobs:
           port: ${{ secrets.BASTION_PORT || 22 }}
           timeout: 300s
           script: |
-            # Create SSH key for backend server access
-            echo "${{ secrets.BACKEND_SSH_KEY || secrets.BASTION_SSH_KEY }}" > /tmp/backend_key
-            chmod 600 /tmp/backend_key
-            
             # SSH into the backend server through bastion
-            ssh -i /tmp/backend_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
             
-            set -e
+            set -e  # Exit on any error
             
-            # Set container name and port based on environment
-            if [ "${{ github.event.inputs.environment }}" = "staging" ]; then
-              CONTAINER_NAME="${{ env.CONTAINER_NAME }}-staging"
-              PORT="3002"
-              NODE_ENV="staging"
-            else
-              CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
-              PORT="3000"
-              NODE_ENV="production"
-            fi
+            # Deployment variables
+            export DOCKER_IMAGE="${{ env.DOCKER_IMAGE }}"
+            export IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
+            export CONTAINER_NAME="${{ steps.vars.outputs.container_name }}"
+            export ENVIRONMENT="${{ steps.vars.outputs.environment }}"
+            export PORT="${{ steps.vars.outputs.port }}"
             
-            IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
-            
-            echo "=== Manual Deployment to ${{ github.event.inputs.environment }} ==="
-            echo "Image: ${{ env.DOCKER_IMAGE }}:${IMAGE_TAG}"
+            echo "=== Starting Deployment ==="
+            echo "Environment: ${ENVIRONMENT}"
+            echo "Image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
             echo "Container: ${CONTAINER_NAME}"
             echo "Port: ${PORT}"
             
-            # Pull image
-            docker pull ${{ env.DOCKER_IMAGE }}:${IMAGE_TAG}
+            # Check if Docker is available
+            if ! command -v docker &> /dev/null; then
+              echo "❌ Docker is not installed or not in PATH"
+              exit 1
+            fi
             
-            # Stop existing container
-            docker stop ${CONTAINER_NAME} 2>/dev/null || true
-            docker rm ${CONTAINER_NAME} 2>/dev/null || true
+            # Check Docker permissions
+            if ! docker ps &> /dev/null; then
+              echo "❌ Docker permission denied. Adding user to docker group..."
+              sudo usermod -aG docker $USER
+              newgrp docker
+              
+              # Test again
+              if ! docker ps &> /dev/null; then
+                echo "❌ Still cannot access Docker. Using sudo..."
+                DOCKER_CMD="sudo docker"
+              else
+                DOCKER_CMD="docker"
+              fi
+            else
+              DOCKER_CMD="docker"
+            fi
+            
+            echo "✅ Docker access confirmed"
+            
+            # Pull the latest image
+            echo "📦 Pulling Docker image..."
+            $DOCKER_CMD pull ${DOCKER_IMAGE}:${IMAGE_TAG}
+            
+            # Stop existing container if exists
+            if $DOCKER_CMD ps -q -f name=${CONTAINER_NAME} | grep -q .; then
+              echo "🛑 Stopping existing container..."
+              $DOCKER_CMD stop ${CONTAINER_NAME} || true
+              $DOCKER_CMD rm ${CONTAINER_NAME} || true
+            fi
             
             # Start new container
-            docker run -d \
+            echo "🚀 Starting new container..."
+            $DOCKER_CMD run -d \
               --name ${CONTAINER_NAME} \
               --restart unless-stopped \
               -p ${PORT}:3000 \
-              -e NODE_ENV=${NODE_ENV} \
+              -e NODE_ENV=${ENVIRONMENT} \
               -e PORT=3000 \
               -e FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
               -e MONGODB_URI="${{ secrets.MONGODB_URI }}" \
@@ -116,36 +176,58 @@ jobs:
               -e N8N_REQUEST_KEY="${{ secrets.N8N_REQUEST_KEY }}" \
               -e N8N_GENERATION_FLOW_ID="${{ secrets.N8N_GENERATION_FLOW_ID }}" \
               -e N8N_ENHANCEMENT_FLOW_ID="${{ secrets.N8N_ENHANCEMENT_FLOW_ID }}" \
-              ${{ env.DOCKER_IMAGE }}:${IMAGE_TAG}
+              ${DOCKER_IMAGE}:${IMAGE_TAG}
+            
+            # Wait for container to start
+            echo "⏳ Waiting for container to start..."
+            sleep 15
             
             # Health check
-            sleep 10
-            for i in {1..20}; do
+            echo "🏥 Performing health check..."
+            HEALTH_CHECK_PASSED=false
+            for i in {1..30}; do
               if curl -f -s http://localhost:${PORT}/health > /dev/null 2>&1; then
-                echo "✅ Deployment successful!"
-                exit 0
+                echo "✅ Health check passed on attempt $i!"
+                HEALTH_CHECK_PASSED=true
+                break
               fi
-              echo "⏳ Health check attempt $i..."
-              sleep 3
+              echo "⏳ Health check attempt $i failed, retrying in 5 seconds..."
+              sleep 5
             done
             
-            echo "❌ Health check failed!"
-            exit 1
+            if [ "$HEALTH_CHECK_PASSED" = false ]; then
+              echo "❌ Health check failed! Container logs:"
+              $DOCKER_CMD logs ${CONTAINER_NAME} --tail 50
+              exit 1
+            fi
+            
+            # Clean up old images (keep last 3)
+            echo "🧹 Cleaning up old images..."
+            OLD_IMAGES=$($DOCKER_CMD images ${DOCKER_IMAGE} --format "table {{.Repository}}:{{.Tag}}\t{{.CreatedAt}}" | tail -n +2 | sort -k2 -r | tail -n +4 | awk '{print $1}')
+            if [ -n "$OLD_IMAGES" ]; then
+              echo "$OLD_IMAGES" | xargs -r $DOCKER_CMD rmi || true
+            fi
+            
+            echo "🎉 Deployment completed successfully!"
+            echo "📊 Container status:"
+            $DOCKER_CMD ps -f name=${CONTAINER_NAME}
+            
+            # Show container logs (last 10 lines)
+            echo "📋 Recent container logs:"
+            $DOCKER_CMD logs ${CONTAINER_NAME} --tail 10
             
             ENDSSH
-            
-            rm -f /tmp/backend_key
 
   rollback:
-    name: Rollback ${{ github.event.inputs.environment }}
+    name: Rollback Deployment
     runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'rollback'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'rollback'
     
     environment:
       name: ${{ github.event.inputs.environment }}
     
     steps:
-      - name: Rollback via Bastion Host
+      - name: Rollback to Previous Version
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.BASTION_HOST }}
@@ -153,14 +235,14 @@ jobs:
           key: ${{ secrets.BASTION_SSH_KEY }}
           port: ${{ secrets.BASTION_PORT || 22 }}
           script: |
-            echo "${{ secrets.BACKEND_SSH_KEY || secrets.BASTION_SSH_KEY }}" > /tmp/backend_key
-            chmod 600 /tmp/backend_key
-            
-            ssh -i /tmp/backend_key -o StrictHostKeyChecking=no ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
+            ssh -o StrictHostKeyChecking=no ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
             
             set -e
             
-            if [ "${{ github.event.inputs.environment }}" = "staging" ]; then
+            echo "🔄 Starting rollback process..."
+            
+            # Set container name based on environment
+            if [ "${{ github.event.inputs.environment }}" == "staging" ]; then
               CONTAINER_NAME="${{ env.CONTAINER_NAME }}-staging"
               PORT="3002"
             else
@@ -168,41 +250,80 @@ jobs:
               PORT="3000"
             fi
             
-            echo "🔄 Rolling back ${CONTAINER_NAME}..."
+            # Check Docker permissions
+            if ! docker ps &> /dev/null; then
+              DOCKER_CMD="sudo docker"
+            else
+              DOCKER_CMD="docker"
+            fi
             
-            # Get previous image
-            PREVIOUS_IMAGE=$(docker images ${{ env.DOCKER_IMAGE }} --format "table {{.Repository}}:{{.Tag}}" | tail -n +2 | head -n 2 | tail -n 1 | awk '{print $1}')
+            # Get the previous image (second most recent)
+            PREVIOUS_IMAGE=$($DOCKER_CMD images ${{ env.DOCKER_IMAGE }} --format "table {{.Repository}}:{{.Tag}}" | tail -n +2 | head -n 2 | tail -n 1 | awk '{print $1}')
             
             if [ -z "$PREVIOUS_IMAGE" ]; then
-              echo "❌ No previous image found"
+              echo "❌ No previous image found for rollback"
               exit 1
             fi
             
             echo "📦 Rolling back to: $PREVIOUS_IMAGE"
             
             # Stop current container
-            docker stop ${CONTAINER_NAME} || true
-            docker rm ${CONTAINER_NAME} || true
+            echo "🛑 Stopping current container..."
+            $DOCKER_CMD stop ${CONTAINER_NAME} || true
+            $DOCKER_CMD rm ${CONTAINER_NAME} || true
             
-            # Start previous version (simplified)
-            docker run -d \
+            # Start previous version
+            echo "🚀 Starting previous version..."
+            $DOCKER_CMD run -d \
               --name ${CONTAINER_NAME} \
               --restart unless-stopped \
               -p ${PORT}:3000 \
-              -e NODE_ENV=${{ github.event.inputs.environment == 'staging' && 'staging' || 'production' }} \
+              -e NODE_ENV=${{ github.event.inputs.environment }} \
               -e PORT=3000 \
-              --env-file <(echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}") \
+              -e FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
+              -e MONGODB_URI="${{ secrets.MONGODB_URI }}" \
+              -e REDIS_URL="${{ secrets.REDIS_URL }}" \
+              -e LOG_LEVEL="${{ secrets.LOG_LEVEL || 'info' }}" \
+              -e AUTH0_DOMAIN="${{ secrets.AUTH0_DOMAIN }}" \
+              -e AUTH0_AUDIENCE="${{ secrets.AUTH0_AUDIENCE }}" \
+              -e AUTH0_CLIENT_ID="${{ secrets.AUTH0_CLIENT_ID }}" \
+              -e AUTH0_CLIENT_SECRET="${{ secrets.AUTH0_CLIENT_SECRET }}" \
+              -e AUTH0_WEBHOOK_SECRET="${{ secrets.AUTH0_WEBHOOK_SECRET }}" \
+              -e AUTH0_ACTIONS_SECRET="${{ secrets.AUTH0_ACTIONS_SECRET }}" \
+              -e RAZORPAY_KEY_ID="${{ secrets.RAZORPAY_KEY_ID }}" \
+              -e RAZORPAY_KEY_SECRET="${{ secrets.RAZORPAY_KEY_SECRET }}" \
+              -e RAZORPAY_WEBHOOK_SECRET="${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" \
+              -e DEFAULT_USER_CREDITS="${{ secrets.DEFAULT_USER_CREDITS || '3' }}" \
+              -e SUBSCRIPTION_RECONCILIATION_ENABLED="${{ secrets.SUBSCRIPTION_RECONCILIATION_ENABLED || 'true' }}" \
+              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+              -e IDEOGRAM_API_KEY="${{ secrets.IDEOGRAM_API_KEY }}" \
+              -e FAL_KEY="${{ secrets.FAL_KEY }}" \
+              -e IMAGEKIT_PUBLIC_KEY="${{ secrets.IMAGEKIT_PUBLIC_KEY }}" \
+              -e IMAGEKIT_PRIVATE_KEY="${{ secrets.IMAGEKIT_PRIVATE_KEY }}" \
+              -e IMAGEKIT_URL_ENDPOINT="${{ secrets.IMAGEKIT_URL_ENDPOINT }}" \
+              -e SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}" \
+              -e N8N_WEBHOOK_URL="${{ secrets.N8N_WEBHOOK_URL }}" \
+              -e N8N_JWT_SECRET="${{ secrets.N8N_JWT_SECRET }}" \
+              -e N8N_REQUEST_KEY="${{ secrets.N8N_REQUEST_KEY }}" \
+              -e N8N_GENERATION_FLOW_ID="${{ secrets.N8N_GENERATION_FLOW_ID }}" \
+              -e N8N_ENHANCEMENT_FLOW_ID="${{ secrets.N8N_ENHANCEMENT_FLOW_ID }}" \
               $PREVIOUS_IMAGE
             
             # Health check
+            echo "🏥 Performing rollback health check..."
             sleep 10
-            if curl -f -s http://localhost:${PORT}/health > /dev/null 2>&1; then
-              echo "✅ Rollback successful!"
-            else
-              echo "❌ Rollback failed!"
-              exit 1
-            fi
+            for i in {1..20}; do
+              if curl -f -s http://localhost:${PORT}/health > /dev/null 2>&1; then
+                echo "✅ Rollback completed successfully!"
+                exit 0
+              fi
+              echo "⏳ Health check attempt $i..."
+              sleep 3
+            done
+            
+            echo "❌ Rollback health check failed!"
+            $DOCKER_CMD logs ${CONTAINER_NAME} --tail 20
+            exit 1
             
             ENDSSH
-            
-            rm -f /tmp/backend_key
