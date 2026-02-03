@@ -1,8 +1,8 @@
 name: Continuous Deployment - JOMO Backend
 
 on:
-  repository_dispatch:
-    types: [deploy-production, deploy-staging]
+  push:
+    branches: [main, feature/enhance-generation]
   workflow_dispatch:
     inputs:
       environment:
@@ -32,28 +32,39 @@ env:
 
 jobs:
   deploy:
-    name: Deploy to ${{ github.event.inputs.environment || 'production' }}
+    name: Deploy to ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'staging') }}
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'repository_dispatch' && (github.event.action == 'deploy-production' || github.event.action == 'deploy-staging')) ||
+      (github.event_name == 'push') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     
     environment:
-      name: ${{ github.event.inputs.environment || 'production' }}
-      url: ${{ github.event.inputs.environment == 'staging' && 'https://staging-api.jomo.dazzeldigital.com' || 'https://api.jomo.dazzeldigital.com' }}
+      name: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'staging') }}
+      url: ${{ (github.event.inputs.environment == 'staging' || github.ref == 'refs/heads/feature/enhance-generation') && 'https://staging-api.jomo.dazzeldigital.com' || 'https://api.jomo.dazzeldigital.com' }}
     
     steps:
+      - name: Wait for CI to complete
+        if: github.event_name == 'push'
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.sha }}
+          check-name: 'Build and Push Docker Image'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+          
       - name: Set deployment variables
         id: vars
         run: |
-          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
-            echo "image_tag=${{ github.event.client_payload.image_tag }}" >> $GITHUB_OUTPUT
-            echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
-            echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
-            echo "port=3000" >> $GITHUB_OUTPUT
-            
-            # Override for staging
-            if [ "${{ github.event.client_payload.environment }}" == "staging" ]; then
+          if [ "${{ github.event_name }}" == "push" ]; then
+            # Automatic deployment from push
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              echo "image_tag=main-${{ github.sha }}" >> $GITHUB_OUTPUT
+              echo "environment=production" >> $GITHUB_OUTPUT
+              echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
+              echo "port=3000" >> $GITHUB_OUTPUT
+            elif [ "${{ github.ref }}" == "refs/heads/feature/enhance-generation" ]; then
+              echo "image_tag=feature-enhance-generation-${{ github.sha }}" >> $GITHUB_OUTPUT
+              echo "environment=staging" >> $GITHUB_OUTPUT
               echo "container_name=${{ env.CONTAINER_NAME }}-staging" >> $GITHUB_OUTPUT
               echo "port=3002" >> $GITHUB_OUTPUT
             fi
