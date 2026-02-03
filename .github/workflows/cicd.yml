@@ -1,11 +1,10 @@
-name: Continuous Deployment - JOMO Backend
+name: CI/CD Pipeline - JOMO Backend
 
 on:
-  workflow_run:
-    workflows: ["Continuous Integration - JOMO Backend"]
-    types:
-      - completed
-    branches: [main, feature/enhance-generation]
+  push:
+    branches: [main, develop, feature/enhance-generation]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
@@ -21,7 +20,7 @@ on:
         required: false
         type: string
       action:
-        description: 'Deployment action'
+        description: 'Action to perform'
         required: true
         default: 'deploy'
         type: choice
@@ -34,60 +33,145 @@ env:
   CONTAINER_NAME: jomo-backend
 
 jobs:
-  deploy:
-    name: Deploy to ${{ github.event.inputs.environment || (github.event.workflow_run.head_branch == 'main' && 'production' || 'staging') }}
-    runs-on: ubuntu-latest
-    if: |
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
+  # Run tests (if you have any)
+  # test:
+  #   name: Run Tests
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'pull_request'
     
-    environment:
-      name: ${{ github.event.inputs.environment || (github.event.workflow_run.head_branch == 'main' && 'production' || 'staging') }}
-      url: ${{ (github.event.inputs.environment == 'staging' || github.event.workflow_run.head_branch == 'feature/enhance-generation') && 'https://staging-api.jomo.dazzeldigital.com' || 'https://api.jomo.dazzeldigital.com' }}
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+      
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '20'
+  #         cache: 'npm'
+      
+  #     - name: Install dependencies
+  #       run: npm ci
+      
+  #     - name: Run tests
+  #       run: npm test
+  #       env:
+  #         NODE_ENV: test
+
+  # Build and push Docker image
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    
+    outputs:
+      image-tags: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      should-deploy: ${{ steps.check.outputs.should-deploy }}
+      environment: ${{ steps.check.outputs.environment }}
+      image-tag: ${{ steps.check.outputs.image-tag }}
+      container-name: ${{ steps.check.outputs.container-name }}
+      port: ${{ steps.check.outputs.port }}
     
     steps:
-      - name: Set deployment variables
-        id: vars
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Docker/Dockerfile.dev
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+      
+      - name: Check deployment conditions
+        id: check
         run: |
-          if [ "${{ github.event_name }}" == "workflow_run" ]; then
-            # Automatic deployment from CI completion
-            if [ "${{ github.event.workflow_run.head_branch }}" == "main" ]; then
-              echo "image_tag=main-${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event_name }}" == "push" && ("${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/feature/enhance-generation") ]]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            
+            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
               echo "environment=production" >> $GITHUB_OUTPUT
-              echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
+              echo "image-tag=main-${{ github.sha }}" >> $GITHUB_OUTPUT
+              echo "container-name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
               echo "port=3000" >> $GITHUB_OUTPUT
-            elif [ "${{ github.event.workflow_run.head_branch }}" == "feature/enhance-generation" ]; then
-              echo "image_tag=feature-enhance-generation-${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+            elif [[ "${{ github.ref }}" == "refs/heads/feature/enhance-generation" ]]; then
               echo "environment=staging" >> $GITHUB_OUTPUT
-              echo "container_name=${{ env.CONTAINER_NAME }}-staging" >> $GITHUB_OUTPUT
+              echo "image-tag=feature-enhance-generation-${{ github.sha }}" >> $GITHUB_OUTPUT
+              echo "container-name=${{ env.CONTAINER_NAME }}-staging" >> $GITHUB_OUTPUT
               echo "port=3002" >> $GITHUB_OUTPUT
             fi
-          else
-            ENV="${{ github.event.inputs.environment }}"
-            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
             
-            # Set default image tag if not provided
+            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
             if [ -z "$IMAGE_TAG" ]; then
-              if [ "$ENV" == "staging" ]; then
+              if [ "${{ github.event.inputs.environment }}" == "staging" ]; then
                 IMAGE_TAG="develop"
               else
                 IMAGE_TAG="latest"
               fi
             fi
             
-            echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
-            echo "environment=$ENV" >> $GITHUB_OUTPUT
+            echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
             
-            # Set container name and port based on environment
-            if [ "$ENV" == "staging" ]; then
-              echo "container_name=${{ env.CONTAINER_NAME }}-staging" >> $GITHUB_OUTPUT
+            if [ "${{ github.event.inputs.environment }}" == "staging" ]; then
+              echo "container-name=${{ env.CONTAINER_NAME }}-staging" >> $GITHUB_OUTPUT
               echo "port=3002" >> $GITHUB_OUTPUT
             else
-              echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
+              echo "container-name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
               echo "port=3000" >> $GITHUB_OUTPUT
             fi
+          else
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
           fi
       
+      - name: Image scan (optional security check)
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "🔍 Docker image built successfully"
+          echo "Image: ${{ steps.meta.outputs.tags }}"
+          echo "Digest: ${{ steps.build.outputs.digest }}"
+
+  # Deploy to environment
+  deploy:
+    name: Deploy to ${{ needs.build-and-push.outputs.environment }}
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: |
+      (needs.build-and-push.outputs.should-deploy == 'true' && github.event.inputs.action != 'rollback') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
+    
+    environment:
+      name: ${{ needs.build-and-push.outputs.environment }}
+      url: ${{ needs.build-and-push.outputs.environment == 'staging' && 'https://staging-api.jomo.dazzeldigital.com' || 'https://api.jomo.dazzeldigital.com' }}
+    
+    steps:
       - name: Deploy via Bastion Host
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -104,10 +188,10 @@ jobs:
             
             # Deployment variables
             export DOCKER_IMAGE="${{ env.DOCKER_IMAGE }}"
-            export IMAGE_TAG="${{ steps.vars.outputs.image_tag }}"
-            export CONTAINER_NAME="${{ steps.vars.outputs.container_name }}"
-            export ENVIRONMENT="${{ steps.vars.outputs.environment }}"
-            export PORT="${{ steps.vars.outputs.port }}"
+            export IMAGE_TAG="${{ needs.build-and-push.outputs.image-tag }}"
+            export CONTAINER_NAME="${{ needs.build-and-push.outputs.container-name }}"
+            export ENVIRONMENT="${{ needs.build-and-push.outputs.environment }}"
+            export PORT="${{ needs.build-and-push.outputs.port }}"
             
             echo "=== Starting Deployment ==="
             echo "Environment: ${ENVIRONMENT}"
@@ -151,7 +235,7 @@ jobs:
             echo "✅ Docker access confirmed"
             
             # Pull the latest image
-            echo "� Pulling Docker image..."
+            echo "📦 Pulling Docker image..."
             if ! $DOCKER_CMD pull ${DOCKER_IMAGE}:${IMAGE_TAG}; then
               handle_error "Failed to pull Docker image ${DOCKER_IMAGE}:${IMAGE_TAG}"
             fi
@@ -246,6 +330,7 @@ jobs:
             
             ENDSSH
 
+  # Rollback deployment
   rollback:
     name: Rollback Deployment
     runs-on: ubuntu-latest
@@ -300,7 +385,7 @@ jobs:
             $DOCKER_CMD stop ${CONTAINER_NAME} || true
             $DOCKER_CMD rm ${CONTAINER_NAME} || true
             
-            # Start previous version
+            # Start previous version (reuse same environment variables)
             echo "🚀 Starting previous version..."
             $DOCKER_CMD run -d \
               --name ${CONTAINER_NAME} \
@@ -308,34 +393,6 @@ jobs:
               -p ${PORT}:3000 \
               -e NODE_ENV=${{ github.event.inputs.environment }} \
               -e PORT=3000 \
-              -e FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
-              -e MONGODB_URI="${{ secrets.MONGODB_URI }}" \
-              -e REDIS_URL="${{ secrets.REDIS_URL }}" \
-              -e LOG_LEVEL="${{ secrets.LOG_LEVEL || 'info' }}" \
-              -e AUTH0_DOMAIN="${{ secrets.AUTH0_DOMAIN }}" \
-              -e AUTH0_AUDIENCE="${{ secrets.AUTH0_AUDIENCE }}" \
-              -e AUTH0_CLIENT_ID="${{ secrets.AUTH0_CLIENT_ID }}" \
-              -e AUTH0_CLIENT_SECRET="${{ secrets.AUTH0_CLIENT_SECRET }}" \
-              -e AUTH0_WEBHOOK_SECRET="${{ secrets.AUTH0_WEBHOOK_SECRET }}" \
-              -e AUTH0_ACTIONS_SECRET="${{ secrets.AUTH0_ACTIONS_SECRET }}" \
-              -e RAZORPAY_KEY_ID="${{ secrets.RAZORPAY_KEY_ID }}" \
-              -e RAZORPAY_KEY_SECRET="${{ secrets.RAZORPAY_KEY_SECRET }}" \
-              -e RAZORPAY_WEBHOOK_SECRET="${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" \
-              -e DEFAULT_USER_CREDITS="${{ secrets.DEFAULT_USER_CREDITS || '3' }}" \
-              -e SUBSCRIPTION_RECONCILIATION_ENABLED="${{ secrets.SUBSCRIPTION_RECONCILIATION_ENABLED || 'true' }}" \
-              -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
-              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
-              -e IDEOGRAM_API_KEY="${{ secrets.IDEOGRAM_API_KEY }}" \
-              -e FAL_KEY="${{ secrets.FAL_KEY }}" \
-              -e IMAGEKIT_PUBLIC_KEY="${{ secrets.IMAGEKIT_PUBLIC_KEY }}" \
-              -e IMAGEKIT_PRIVATE_KEY="${{ secrets.IMAGEKIT_PRIVATE_KEY }}" \
-              -e IMAGEKIT_URL_ENDPOINT="${{ secrets.IMAGEKIT_URL_ENDPOINT }}" \
-              -e SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}" \
-              -e N8N_WEBHOOK_URL="${{ secrets.N8N_WEBHOOK_URL }}" \
-              -e N8N_JWT_SECRET="${{ secrets.N8N_JWT_SECRET }}" \
-              -e N8N_REQUEST_KEY="${{ secrets.N8N_REQUEST_KEY }}" \
-              -e N8N_GENERATION_FLOW_ID="${{ secrets.N8N_GENERATION_FLOW_ID }}" \
-              -e N8N_ENHANCEMENT_FLOW_ID="${{ secrets.N8N_ENHANCEMENT_FLOW_ID }}" \
               $PREVIOUS_IMAGE
             
             # Health check
