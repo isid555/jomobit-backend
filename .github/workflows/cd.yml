@@ -2,7 +2,7 @@ name: Continuous Deployment - JOMO Backend
 
 on:
   repository_dispatch:
-    types: [deploy-production]
+    types: [deploy-production, deploy-staging]
   workflow_dispatch:
     inputs:
       environment:
@@ -35,7 +35,7 @@ jobs:
     name: Deploy to ${{ github.event.inputs.environment || 'production' }}
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'repository_dispatch' && github.event.action == 'deploy-production') ||
+      (github.event_name == 'repository_dispatch' && (github.event.action == 'deploy-production' || github.event.action == 'deploy-staging')) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     
     environment:
@@ -48,9 +48,15 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
             echo "image_tag=${{ github.event.client_payload.image_tag }}" >> $GITHUB_OUTPUT
-            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "environment=${{ github.event.client_payload.environment }}" >> $GITHUB_OUTPUT
             echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
             echo "port=3000" >> $GITHUB_OUTPUT
+            
+            # Override for staging
+            if [ "${{ github.event.client_payload.environment }}" == "staging" ]; then
+              echo "container_name=${{ env.CONTAINER_NAME }}-staging" >> $GITHUB_OUTPUT
+              echo "port=3002" >> $GITHUB_OUTPUT
+            fi
           else
             ENV="${{ github.event.inputs.environment }}"
             IMAGE_TAG="${{ github.event.inputs.image_tag }}"
@@ -89,7 +95,7 @@ jobs:
             # SSH into the backend server through bastion
             ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
             
-            set -e  # Exit on any error
+            set -euo pipefail  # Exit on any error, undefined variables, or pipe failures
             
             # Deployment variables
             export DOCKER_IMAGE="${{ env.DOCKER_IMAGE }}"
@@ -104,17 +110,27 @@ jobs:
             echo "Container: ${CONTAINER_NAME}"
             echo "Port: ${PORT}"
             
+            # Function to handle errors
+            handle_error() {
+              echo "❌ Deployment failed at step: $1"
+              echo "📋 Checking for container logs..."
+              if docker ps -a -q -f name=${CONTAINER_NAME} | grep -q .; then
+                echo "Container logs:"
+                docker logs ${CONTAINER_NAME} --tail 50 || true
+              fi
+              exit 1
+            }
+            
             # Check if Docker is available
             if ! command -v docker &> /dev/null; then
-              echo "❌ Docker is not installed or not in PATH"
-              exit 1
+              handle_error "Docker is not installed or not in PATH"
             fi
             
             # Check Docker permissions
             if ! docker ps &> /dev/null; then
               echo "❌ Docker permission denied. Adding user to docker group..."
-              sudo usermod -aG docker $USER
-              newgrp docker
+              sudo usermod -aG docker $USER || handle_error "Failed to add user to docker group"
+              newgrp docker || handle_error "Failed to apply docker group"
               
               # Test again
               if ! docker ps &> /dev/null; then
@@ -130,8 +146,10 @@ jobs:
             echo "✅ Docker access confirmed"
             
             # Pull the latest image
-            echo "📦 Pulling Docker image..."
-            $DOCKER_CMD pull ${DOCKER_IMAGE}:${IMAGE_TAG}
+            echo "� Pulling Docker image..."
+            if ! $DOCKER_CMD pull ${DOCKER_IMAGE}:${IMAGE_TAG}; then
+              handle_error "Failed to pull Docker image ${DOCKER_IMAGE}:${IMAGE_TAG}"
+            fi
             
             # Stop existing container if exists
             if $DOCKER_CMD ps -q -f name=${CONTAINER_NAME} | grep -q .; then
@@ -142,7 +160,7 @@ jobs:
             
             # Start new container
             echo "🚀 Starting new container..."
-            $DOCKER_CMD run -d \
+            if ! $DOCKER_CMD run -d \
               --name ${CONTAINER_NAME} \
               --restart unless-stopped \
               -p ${PORT}:3000 \
@@ -176,11 +194,18 @@ jobs:
               -e N8N_REQUEST_KEY="${{ secrets.N8N_REQUEST_KEY }}" \
               -e N8N_GENERATION_FLOW_ID="${{ secrets.N8N_GENERATION_FLOW_ID }}" \
               -e N8N_ENHANCEMENT_FLOW_ID="${{ secrets.N8N_ENHANCEMENT_FLOW_ID }}" \
-              ${DOCKER_IMAGE}:${IMAGE_TAG}
+              ${DOCKER_IMAGE}:${IMAGE_TAG}; then
+              handle_error "Failed to start Docker container"
+            fi
             
             # Wait for container to start
             echo "⏳ Waiting for container to start..."
             sleep 15
+            
+            # Verify container is running
+            if ! $DOCKER_CMD ps -q -f name=${CONTAINER_NAME} | grep -q .; then
+              handle_error "Container failed to start or exited immediately"
+            fi
             
             # Health check
             echo "🏥 Performing health check..."
@@ -196,9 +221,7 @@ jobs:
             done
             
             if [ "$HEALTH_CHECK_PASSED" = false ]; then
-              echo "❌ Health check failed! Container logs:"
-              $DOCKER_CMD logs ${CONTAINER_NAME} --tail 50
-              exit 1
+              handle_error "Health check failed after 30 attempts"
             fi
             
             # Clean up old images (keep last 3)
