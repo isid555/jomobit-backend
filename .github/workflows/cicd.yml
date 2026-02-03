@@ -181,6 +181,21 @@ jobs:
           port: ${{ secrets.BASTION_PORT || 22 }}
           timeout: 300s
           script: |
+            echo "🔗 Connecting to backend server..."
+            echo "Bastion: ${{ secrets.BASTION_HOST }}"
+            echo "Backend: ${{ secrets.BACKEND_HOST }}"
+            echo "User: ${{ secrets.BACKEND_USER }}"
+            
+            # Test connection first
+            if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} 'echo "Connection test successful"'; then
+              echo "❌ Cannot connect to backend server"
+              echo "Please check:"
+              echo "1. BACKEND_HOST secret is set to: 10.0.2.227"
+              echo "2. BACKEND_USER secret is set to: ubuntu"
+              echo "3. SSH key access is configured"
+              exit 1
+            fi
+            
             # SSH into the backend server through bastion
             ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${{ secrets.BACKEND_USER }}@${{ secrets.BACKEND_HOST }} << 'ENDSSH'
             
