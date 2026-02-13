@@ -34,7 +34,7 @@ env:
 
 jobs:
   # Run tests (if you have any)
-  # test: n t n g g
+  # test: n t n g g e
   #   name: Run Tests
   #   runs-on: ubuntu-latest
   #   if: github.event_name == 'pull_request'
