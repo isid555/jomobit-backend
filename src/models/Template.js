@@ -311,7 +311,8 @@ templateSchema.statics = {
       "makar sankranti",
       "pongal",
       "lohri",
-      "republic day"
+      "republic day",
+      "ramadan kareem"
 
     ];
 
