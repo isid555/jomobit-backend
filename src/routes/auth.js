@@ -349,4 +349,142 @@ router.post('/admin/users/:userId/activate', authenticate, requireAdmin(), authC
  */
 router.get('/admin/stats', authenticate, requireAdmin(), authController.getUserStats);
 
+/**
+ * @swagger
+ * /api/auth/sync-guest-job:
+ *   post:
+ *     summary: Sync guest user job to authenticated user
+ *     description: Transfers job ownership from guest user to authenticated user after signup. Soft deletes guest user.
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - guestUserId
+ *             properties:
+ *               guestUserId:
+ *                 type: string
+ *                 description: Guest user ID from localStorage
+ *                 example: "507f1f77bcf86cd799439011"
+ *     responses:
+ *       200:
+ *         description: Guest job synced successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Guest job synced successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     jobsTransferred:
+ *                       type: number
+ *                       example: 1
+ *                     jobs:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           jobId:
+ *                             type: string
+ *                           status:
+ *                             type: string
+ *                           templateId:
+ *                             type: string
+ *                           createdAt:
+ *                             type: string
+ *                             format: date-time
+ *                     guestUserId:
+ *                       type: string
+ *                     actualUserId:
+ *                       type: string
+ *       400:
+ *         description: Bad request - Invalid guest user ID or already synced
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Bad Request"
+ *                 message:
+ *                   type: string
+ *                   example: "Guest user ID is required"
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         description: Guest user not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Not Found"
+ *                 message:
+ *                   type: string
+ *                   example: "Guest user not found"
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
+router.post('/sync-guest-job', authenticate, authController.syncGuestJob);
+
+/**
+ * @swagger
+ * /api/auth/sync-profile-to-job:
+ *   post:
+ *     summary: Sync profile to job (for trial users)
+ *     description: Updates a job's profileId after user creates their first profile
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - jobId
+ *               - profileId
+ *             properties:
+ *               jobId:
+ *                 type: string
+ *                 description: ID of the job to update
+ *               profileId:
+ *                 type: string
+ *                 description: ID of the profile to link
+ *     responses:
+ *       200:
+ *         description: Profile synced successfully
+ *       400:
+ *         description: Bad request
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Job or profile not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/sync-profile-to-job', authenticate, authController.syncProfileToJob);
+
 module.exports = router;

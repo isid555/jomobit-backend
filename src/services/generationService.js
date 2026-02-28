@@ -1,28 +1,31 @@
 const GenerationJob = require('../models/GenerationJob');
 const BusinessProfile = require('../models/BusinessProfile');
 const Template = require('../models/Template');
+const webhookTriggerApi = require("./n8n/webhookTriggerApi");
 const { CreditService } = require('./creditService');
 const { providerFactory } = require('./aiProviders/providerFactory');
+const posterGenerationService = require('./posterGeneration');
 const logger = require('../utils/logger');
+const mongoose = require('mongoose');
 
 /**
  * Custom error classes for generation operations
  */
 class GenerationError extends Error {
-    constructor(message, code, details = {}) {
-        super(message);
-        this.name = 'GenerationError';
-        this.code = code;
-        this.details = details;
-    }
+  constructor(message, code, details = {}) {
+    super(message);
+    this.name = 'GenerationError';
+    this.code = code;
+    this.details = details;
+  }
 }
 
 class GenerationValidationError extends GenerationError {
-    constructor(message, field, value) {
-        super(message, 'VALIDATION_ERROR', { field, value });
-        this.field = field;
-        this.value = value;
-    }
+  constructor(message, field, value) {
+    super(message, 'VALIDATION_ERROR', { field, value });
+    this.field = field;
+    this.value = value;
+  }
 }
 
 /**
@@ -56,24 +59,26 @@ class GenerationService {
   /**
    * Create a new generation job with credit reservation
    * @param {Object} jobData - Generation job data
+   * @param {boolean} isGuest - Whether this is a guest user generation
    * @returns {Promise<Object>} Created job with reservation details
    */
-  async createGenerationJob(jobData) {
+  async createGenerationJob(jobData, isGuest = false) {
     const {
       userId,
       profileId,
       templateId,
-      aiProvider = { llm: "openai", diffusion: "openai" },
       priority = "normal",
       creditsRequired = this.defaultCreditsRequired,
+      generationContext,
     } = jobData;
 
     logger.info("Creating generation job", {
       userId,
       profileId,
       templateId,
-      aiProvider,
       creditsRequired,
+      generationContext,
+      isGuest,
     });
 
     try {
@@ -82,19 +87,21 @@ class GenerationService {
         userId,
         profileId,
         templateId,
-        aiProvider
+        generationContext,
+        isGuest
       );
 
-      logger.info("AI Providers: ", aiProvider);
+      logger.info(`Diffusion Model: ${generationContext.diffusionModel}`);
+      logger.info(`Diffusion Provider: ${generationContext.diffusionProvider}`);
 
-      // Reserve credits before creating job
+      // Create job and reserve credits
       const job = await GenerationJob.createJob({
         userId,
         profileId,
         templateId,
-        creditsReserved: creditsRequired,
-        aiProvider,
         priority,
+        creditsReserved: creditsRequired,
+        generationContext,
       });
 
       // Reserve credits with job ID
@@ -104,9 +111,9 @@ class GenerationService {
         job._id.toString(),
         {
           jobType: "poster_generation",
-          aiProvider,
           profileId,
           templateId,
+          generationContext,
         }
       );
 
@@ -115,11 +122,23 @@ class GenerationService {
         userId,
         creditsReserved: creditsRequired,
         availableCredits: creditReservation.availableCredits,
+        generationContext,
       });
 
       // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
+      // setImmediate(() => {
+      //   this.processGenerationJob(job._id.toString()).catch((error) => {
+      //     logger.error("Background processing failed", {
+      //       jobId: job._id,
+      //       error: error.message,
+      //       stack: error.stack,
+      //     });
+      //   });
+      // });
+
+      // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
       setImmediate(() => {
-        this.processGenerationJob(job._id.toString()).catch((error) => {
+        this.startGenerationWorkflow(job._id.toString()).catch((error) => {
           logger.error("Background processing failed", {
             jobId: job._id,
             error: error.message,
@@ -159,6 +178,121 @@ class GenerationService {
   }
 
   /**
+   * Generate image using selected diffusion provider
+   * @param {GenerationJob} job - Generation job
+   * @param {string} prompt - Generated prompt
+   * @returns {Promise<Object>} Image generation result
+   */
+  async enhanceGenerationJob(jobId, imageUrl) {
+    logger.info("Enhancing generation job", { jobId, imageUrl });
+
+    try {
+      const validJobId = mongoose.Types.ObjectId.isValid(jobId);
+      if (!validJobId) {
+        throw new GenerationError("Invalid job ID", "INVALID_JOB_ID");
+      }
+
+      const job = await GenerationJob.findById(jobId);
+      if (!job) {
+        throw new GenerationError("Job not found", "JOB_NOT_FOUND");
+      }
+
+      if (job.retryCount >= 3) {
+        throw new GenerationError(
+          `Job cannot be retried. Status: ${job.status}, Retries: ${job.retryCount}`,
+          "RETRY_NOT_ALLOWED",
+          { jobId, status: job.status, retryCount: job.retryCount }
+        );
+      }
+      job.status = "queued";
+      job.result.metadata.selectedImageForEnahncement = imageUrl;
+
+      // Explicitly mark the nested field as modified
+      job.markModified("result.metadata");
+      await job.save();
+
+      // 🚀 THIS IS THE MISSING PIECE - TRIGGER BACKGROUND PROCESSING
+      setImmediate(() => {
+        this.startEnhancemnetWorkflow(job._id.toString()).catch((error) => {
+          logger.error("Background processing failed", {
+            jobId: job._id,
+            error: error.message,
+            stack: error.stack,
+          });
+        });
+      });
+
+      return {
+        success: true,
+        jobStatus: job.status,
+        selectedImageForEnahncement: imageUrl,
+        message: "Enanhancing job started successfully",
+      };
+    } catch (error) {
+      logger.error("Error enhancing generation job", {
+        jobId: jobId,
+        imageUrl,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Process a generation job through the AI pipeline
+   * @param {string|ObjectId} jobId - Generation job ID
+   * @returns {Promise<Object>} Processing result
+   */
+  async startGenerationWorkflow(jobId) {
+    logger.info("Starting generation workflow", { jobId });
+
+    try {
+      const response = await webhookTriggerApi.triggerGenerationWebhook(jobId);
+      if (!response.uuid) {
+        throw new GenerationError("Missing N8N unique id", "MISSING_N8N_UUID", "Webhook response doesn't contains unique id");
+      }
+
+      const job = await GenerationJob.findById(jobId);
+      job.externalJobId = response.uuid;
+      await job.save();
+    } catch (error) {
+      logger.error("Error starting generation workflow", {
+        jobId,
+        error: error.message,
+        stack: error.stack,
+      });
+      // Mark job as failed and release credits
+      await this.handleGenerationFailure(jobId, error);
+      throw error;
+    }
+  }
+
+  async startEnhancemnetWorkflow(jobId) {
+    logger.info("Starting enhancement workflow", { jobId });
+    try {
+      const response = await webhookTriggerApi.triggerEnhancementWebhook(jobId);
+      if (!response.uuid) {
+        throw new GenerationError("Missing N8N unique id", "MISSING_N8N_UUID", "Webhook response doesn't contains unique id");
+      }
+      const job = await GenerationJob.findById(jobId);
+      job.externalJobId = response.uuid;
+      await job.save();
+
+      logger.info("Enhancement workflow started successfully", { jobId });
+    } catch (error) {
+      logger.error("Error starting generation workflow", {
+        jobId,
+        error: error.message,
+        stack: error.stack,
+      });
+      // Mark job as failed and release credits
+      // await this.handleGenerationFailure(jobId, error);
+      throw error;
+    }
+  }
+
+  /**
    * Process a generation job through the AI pipeline
    * @param {string|ObjectId} jobId - Generation job ID
    * @returns {Promise<Object>} Processing result
@@ -191,31 +325,36 @@ class GenerationService {
       // Start processing
       await job.startProcessing();
 
-      // Step 1: Generate prompt using LLM provider
-      const promptResult = await this.generatePrompt(job);
-      await job.updatePrompt(promptResult.prompt, promptResult.parameters);
+      // NEW: Use poster generation service based on posterType
+      const result = await posterGenerationService.generatePoster(job);
 
-      // Step 2: Generate image using diffusion provider
-      const imageResult = await this.generateImage(job, promptResult.prompt);
-
-      // Update job with external job ID for webhook tracking
-      if (imageResult.externalJobId) {
-        job.externalJobId = imageResult.externalJobId;
-        job.result.imageUrl = imageResult.imageUrl;
-        job.result.metadata = imageResult.metadata;
-        job.status = imageResult.status;
-        await job.save();
+      // Update job with prompt data
+      if (result.prompt && result.promptParameters) {
+        await job.updatePrompt(result.prompt, result.promptParameters);
       }
+
+      // Update job with timing
+      if (result.timing) {
+        job.timing = result.timing;
+      }
+
+      // Update job with result
+      job.externalJobId = result.jobId;
+      job.result.imageUrl = result.imageUrl;
+      job.result.metadata = result.metadata;
+      job.status = result.status;
+      await job.save();
 
       logger.info("Generation job processing completed", {
         jobId,
-        status: imageResult.status,
-        promptGenerated: !!promptResult.prompt,
-        externalJobId: imageResult.externalJobId,
-        provider: job.aiProvider,
+        status: result.status,
+        externalJobId: result.jobId,
+        posterType: job.posterType,
+        hasPrompt: !!result.prompt,
+        timing: result.timing,
       });
 
-      await this.handleGenerationSuccess(job, imageResult);
+      await this.handleGenerationSuccess(job, result);
     } catch (error) {
       logger.error("Error processing generation job", {
         jobId,
@@ -243,6 +382,7 @@ class GenerationService {
         llmProvider: job.aiProvider.llm,
         profileName: job.profileId.name,
         templateName: job.templateId.name,
+        posterType: job.posterType,
         template: job.templateId,
         profile: job.profileId,
       });
@@ -250,10 +390,11 @@ class GenerationService {
       // Create LLM provider instance
       const llmProvider = providerFactory.createLLMProvider(job.aiProvider.llm);
 
-      // Generate prompt using business profile and template
+      // Generate prompt using business profile, template, and posterType
       const prompt = await llmProvider.generatePrompt(
         job.profileId.getGenerationSummary(),
-        job.templateId
+        job.templateId,
+        job.posterType
       );
 
       const promptGenerationTime = Date.now() - startTime;
@@ -268,6 +409,7 @@ class GenerationService {
         promptLength: prompt.length,
         generationTime: promptGenerationTime,
         provider: job.aiProvider.llm,
+        posterType: job.posterType,
       });
 
       return {
@@ -277,6 +419,7 @@ class GenerationService {
           generationTime: promptGenerationTime,
           profileId: job.profileId._id,
           templateId: job.templateId._id,
+          posterType: job.posterType,
         },
       };
     } catch (error) {
@@ -316,12 +459,16 @@ class GenerationService {
       );
 
       // Prepare generation parameters based on template and brand
-      const templateParameters = this.prepareImageTemplateParameters(job.templateId);
-      const brandParameter = this.prepareImageBrandParameters(job.profileId.getGenerationSummary());
+      const templateParameters = this.prepareImageTemplateParameters(
+        job.templateId
+      );
+      const brandParameter = this.prepareImageBrandParameters(
+        job.profileId.getGenerationSummary()
+      );
 
       const { image: templateUrl, ...restOfTemplate } = templateParameters;
       const { logo: logoUrl, ...restOfBrand } = brandParameter;
-      
+
       const parameters = {
         ...restOfTemplate,
         ...restOfBrand,
@@ -445,6 +592,7 @@ class GenerationService {
       jobId: job._id,
       userId: job.userId,
       hasImageUrl: !!result.imageUrl,
+      isTrial: job.isTrial,
     });
 
     try {
@@ -471,7 +619,6 @@ class GenerationService {
         {
           completedAt: new Date(),
           imageUrl: result.imageUrl,
-          provider: job.aiProvider,
         }
       );
 
@@ -488,7 +635,7 @@ class GenerationService {
         status: "completed",
         result: {
           imageUrl: result.imageUrl,
-          thumbnailUrl: result.imageUrl,
+          thumbnailUrl: result.thumbnailUrl,
         },
         creditsDeducted: job.creditsReserved,
         message: "Generation completed successfully",
@@ -510,7 +657,7 @@ class GenerationService {
    * @param {Object} error - Error information
    * @returns {Promise<Object>} Failure handling result
    */
-  async handleGenerationFailure(jobId, error) {
+  async handleGenerationFailure(jobId, error, isN8NError = false) {
     logger.info("Handling generation failure", {
       jobId,
       errorMessage: error.message || "Unknown error",
@@ -527,13 +674,24 @@ class GenerationService {
         );
       }
 
-      // Mark job as failed
-      await job.fail({
-        message: error.message || "Generation failed",
-        code: error.code || "GENERATION_FAILED",
-        provider: error.provider || job.aiProvider.diffusion,
-        details: error.details || error,
-      });
+      if (isN8NError) {
+        await job.n8nFail(error);
+      } else {
+        // Mark job as failed
+        await job.fail({
+          message: error.message || "Generation failed",
+          code: error.code || "GENERATION_FAILED",
+          details: error.details || {
+            message: error.message,
+            stack: error.stack,
+            ...(error.response && {
+              status: error.response.status,
+              statusText: error.response.statusText,
+              data: error.response.data,
+            }),
+          },
+        });
+      }
 
       // Release reserved credits - handle case where credits might already be processed
       try {
@@ -652,21 +810,60 @@ class GenerationService {
    * @param {string|ObjectId} userId - User ID
    * @param {string|ObjectId} profileId - Business profile ID
    * @param {string|ObjectId} templateId - Template ID
-   * @param {Object} aiProvider - AI provider configuration
+   * @param {Object} generationContext - Generation context
+   * @param {boolean} isGuest - Whether this is a guest user generation
    * @returns {Promise<void>} Validation result
    */
-  async validateGenerationRequest(userId, profileId, templateId, aiProvider) {
-    // Validate user exists and has access to profile
-    const profile = await BusinessProfile.getProfileByIdForUser(
-      profileId,
-      userId
-    );
-    if (!profile) {
+  async validateGenerationRequest(
+    userId,
+    profileId,
+    templateId,
+    generationContext,
+    isGuest = false
+  ) {
+    // Validate posterType
+    const validPosterTypes = ["wish", "cta", "awareness"];
+    if (!validPosterTypes.includes(generationContext.posterType)) {
       throw new GenerationValidationError(
-        "Business profile not found or access denied",
-        "profileId",
-        profileId
+        `Invalid poster type: ${posterType}. Must be one of: ${validPosterTypes.join(
+          ", "
+        )}`,
+        "posterType",
+        posterType
       );
+    }
+
+    // Validate user exists and has access to profile
+    let profile;
+
+    if (isGuest) {
+      // For guest users: Only check if profile exists and is active
+      profile = await BusinessProfile.findOne({
+        _id: profileId,
+        isActive: true
+      });
+
+      if (!profile) {
+        throw new GenerationValidationError(
+          "Business profile not found or inactive",
+          "profileId",
+          profileId
+        );
+      }
+    } else {
+      // For regular users: Check ownership
+      profile = await BusinessProfile.getProfileByIdForUser(
+        profileId,
+        userId
+      );
+
+      if (!profile) {
+        throw new GenerationValidationError(
+          "Business profile not found or access denied",
+          "profileId",
+          profileId
+        );
+      }
     }
 
     // Validate template exists and is active
@@ -676,34 +873,6 @@ class GenerationService {
         "Template not found or inactive",
         "templateId",
         templateId
-      );
-    }
-
-    // Validate AI providers
-    const availableLLM = providerFactory.getAvailableLLMProviders();
-    const availableDiffusion = providerFactory.getAvailableDiffusionProviders();
-
-    if (!availableLLM.includes(aiProvider.llm)) {
-      throw new GenerationValidationError(
-        `Invalid LLM provider: ${
-          aiProvider.llm
-        }. Available: ${availableLLM.join(", ")}`,
-        "aiProvider.llm",
-        aiProvider.llm
-      );
-    }
-
-    logger.info("Available Diffusion Provider: ", availableDiffusion);
-    logger.info("Given provider: ", aiProvider.diffusion);
-    logger.info("-----------xxxxxx----------------------");
-
-    if (!availableDiffusion.includes(aiProvider.diffusion)) {
-      throw new GenerationValidationError(
-        `Invalid diffusion provider: ${
-          aiProvider.diffusion
-        }. Available: ${availableDiffusion.join(", ")}`,
-        "aiProvider.diffusion",
-        aiProvider.diffusion
       );
     }
 
@@ -749,7 +918,7 @@ class GenerationService {
    */
   prepareImageBrandParameters(profile) {
     const parameters = {
-        logo: profile.logo || null
+      logo: profile.logo || null,
     };
 
     // Add brand-specific parameters
@@ -909,7 +1078,7 @@ class GenerationService {
 }
 
 module.exports = {
-    GenerationService,
-    GenerationError,
-    GenerationValidationError
+  GenerationService,
+  GenerationError,
+  GenerationValidationError
 };

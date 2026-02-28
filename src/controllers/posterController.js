@@ -1,4 +1,5 @@
 const { GenerationService } = require('../services/generationService');
+const DiffusionModelConfig = require('../services/n8n/diffusionConfigs');
 const logger = require('../utils/logger');
 
 /**
@@ -8,6 +9,7 @@ const logger = require('../utils/logger');
 class PosterController {
   constructor() {
     this.generationService = new GenerationService();
+    this.diffusionModelConfig = new DiffusionModelConfig();
   }
 
   /**
@@ -20,85 +22,143 @@ class PosterController {
       const {
         profileId,
         templateId,
-        aiProvider = { llm: 'openai', diffusion: 'openai' },
-        priority = 'normal',
-        creditsRequired = 1
+        priority = "normal",
+        creditsRequired = 1,
+        posterType = "wish",
+        generationParameters = {
+          aspectRatio: "1:1",
+        },
       } = req.body;
 
       // Validate required fields
       if (!profileId || !templateId) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'Profile ID and Template ID are required'
+          error: "Validation error",
+          message: "Profile ID and Template ID are required",
         });
       }
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
+
+      // Set Diffusion Model for generation
+      const diffusionModel = "midjourney";
+
+      // Validate Generation Parameters
+      const generationParams = this.diffusionModelConfig.validateModelConfig(
+        diffusionModel,
+        generationParameters
+      );
+
+      let generationContext = {
+        posterType,
+        diffusionModel,
+        diffusionProvider:
+          this.diffusionModelConfig.getProviderForModel(diffusionModel),
+        posterSpecs: generationParams,
+      };
 
       const jobData = {
         userId: actualUserId,
         profileId,
         templateId,
-        aiProvider,
         priority,
-        creditsRequired
+        creditsRequired,
+        generationContext,
       };
+
+      console.log(jobData);
 
       const result = await this.generationService.createGenerationJob(jobData);
 
-      logger.info('Poster generation job created', {
+      logger.info("Poster generation job created", {
         jobId: result.job.id,
         userId: actualUserId,
         profileId,
         templateId,
-        creditsReserved: creditsRequired
+        generationContext,
+        creditsReserved: creditsRequired,
       });
 
       res.status(201).json({
         success: true,
         message: result.message,
         job: result.job,
-        creditReservation: result.creditReservation
+        creditReservation: result.creditReservation,
       });
-
     } catch (error) {
-      if (error.name === 'GenerationError') {
-        const statusCode = error.code === 'INSUFFICIENT_CREDITS' ? 402 : 400;
+      if (error.name === "GenerationError") {
+        const statusCode = error.code === "INSUFFICIENT_CREDITS" ? 402 : 400;
         return res.status(statusCode).json({
           success: false,
           error: error.code,
           message: error.message,
-          details: error.details
+          details: error.details,
         });
       }
 
-      if (error.name === 'GenerationValidationError') {
+      if (error.name === "GenerationValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
+          error: "Validation error",
           message: error.message,
-          field: error.field
+          field: error.field,
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error creating poster generation job:', error);
+      logger.error("Error creating poster generation job:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to create poster generation job'
+        error: "Internal server error",
+        message: "Failed to create poster generation job",
+      });
+    }
+  }
+
+  /**
+   * Enhance a poster generation job
+   * POST /api/posters/enhance
+   */
+  async enhancePoster(req, res) {
+    try {
+      const {
+        jobId,
+        imageUrl,
+      } = req.body;
+
+      if (!jobId || !imageUrl) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: "Job ID and Image URL are required",
+        });
+      }
+
+      const result = await this.generationService.enhanceGenerationJob(jobId, imageUrl);
+      res.json({
+        success: true,
+        message: result.message,
+        jobStatus: result.jobStatus,
+        selectedImageForEnahncement: result.selectedImageForEnahncement,
+      });
+    } catch (error) {
+      logger.error("Error enhancing poster generation job:", error);
+      res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: "Failed to enhance poster generation job",
       });
     }
   }
@@ -115,12 +175,12 @@ class PosterController {
         status,
         page = 1,
         limit = 20,
-        sortBy = 'createdAt',
-        sortOrder = 'desc'
+        sortBy = "createdAt",
+        sortOrder = "desc",
       } = req.query;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
@@ -131,10 +191,13 @@ class PosterController {
         page: parseInt(page),
         limit: parseInt(limit),
         sortBy,
-        sortOrder
+        sortOrder,
       };
 
-      const result = await this.generationService.getUserGenerationHistory(actualUserId, options);
+      const result = await this.generationService.getUserGenerationHistory(
+        actualUserId,
+        options
+      );
 
       res.json({
         success: true,
@@ -142,24 +205,23 @@ class PosterController {
         pagination: result.pagination,
         filters: {
           profileId,
-          status
-        }
+          status,
+        },
       });
-
     } catch (error) {
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error fetching generation history:', error);
+      logger.error("Error fetching generation history:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch generation history'
+        error: "Internal server error",
+        message: "Failed to fetch generation history",
       });
     }
   }
@@ -172,94 +234,96 @@ class PosterController {
     try {
       const userId = req.user.id;
       const { jobId } = req.params;
-      const { includeMetadata = 'false' } = req.query;
+      const { includeMetadata = "false" } = req.query;
 
       // Validate ObjectId format
-      const mongoose = require('mongoose');
+      const mongoose = require("mongoose");
       if (!mongoose.Types.ObjectId.isValid(jobId)) {
         return res.status(400).json({
           success: false,
-          error: 'Invalid job ID format',
-          message: 'The provided job ID is not a valid format'
+          error: "Invalid job ID format",
+          message: "The provided job ID is not a valid format",
         });
       }
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const job = await this.generationService.getGenerationJobForUser(jobId, actualUserId);
+      const job = await this.generationService.getGenerationJobForUser(
+        jobId,
+        actualUserId
+      );
 
       if (!job) {
         return res.status(404).json({
           success: false,
-          error: 'Job not found',
-          message: 'Generation job not found or access denied'
+          error: "Job not found",
+          message: "Generation job not found or access denied",
         });
       }
 
       // Build response with optional metadata
       const response = {
         success: true,
-        job: job.toObject()
+        job: job.toObject(),
       };
 
       // Add detailed metadata if requested
-      if (includeMetadata === 'true') {
-        response.metadata = {
-          generationDetails: {
-            aiProvider: job.aiProvider,
-            prompt: job.prompt,
-            timing: job.timing,
-            retryCount: job.retryCount,
-            priority: job.priority
-          },
-          businessProfile: {
-            id: job.profileId._id,
-            name: job.profileId.name
-          },
-          template: {
-            id: job.templateId._id,
-            name: job.templateId.name,
-            aspectRatio: job.templateId.aspectRatio
-          },
-          processing: {
-            createdAt: job.createdAt,
-            startedAt: job.startedAt,
-            completedAt: job.completedAt,
-            totalDuration: job.getProcessingDuration()
-          }
-        };
+      // if (includeMetadata === "true") {
+      //   response.metadata = {
+      //     generationDetails: {
+      //       aiProvider: job.aiProvider,
+      //       prompt: job.prompt,
+      //       timing: job.timing,
+      //       retryCount: job.retryCount,
+      //       priority: job.priority,
+      //     },
+      //     businessProfile: {
+      //       id: job.profileId._id,
+      //       name: job.profileId.name,
+      //     },
+      //     template: {
+      //       id: job.templateId._id,
+      //       name: job.templateId.name,
+      //       aspectRatio: job.templateId.aspectRatio,
+      //     },
+      //     processing: {
+      //       createdAt: job.createdAt,
+      //       startedAt: job.startedAt,
+      //       completedAt: job.completedAt,
+      //       totalDuration: job.getProcessingDuration(),
+      //     },
+      //   };
 
-        // Add error details if job failed
-        if (job.status === 'failed' && job.error) {
-          response.metadata.error = {
-            message: job.error.message,
-            code: job.error.code,
-            provider: job.error.provider,
-            occurredAt: job.error.occurredAt
-          };
-        }
-      }
+      //   // Add error details if job failed
+      //   if (job.status === "failed" && job.error) {
+      //     response.metadata.error = {
+      //       message: job.error.message,
+      //       code: job.error.code,
+      //       provider: job.error.provider,
+      //       occurredAt: job.error.occurredAt,
+      //     };
+      //   }
+      // }
 
       res.json(response);
-
     } catch (error) {
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error fetching generation job:', error);
+      logger.error("Error fetching generation job:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch generation job'
+        error: "Internal server error",
+        message: "Failed to fetch generation job",
       });
     }
   }
@@ -272,21 +336,25 @@ class PosterController {
     try {
       const userId = req.user.id;
       const { jobId } = req.params;
-      const { reason = 'User cancelled' } = req.body || {};
+      const { reason = "User cancelled" } = req.body || {};
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.generationService.cancelGenerationJob(jobId, actualUserId, reason);
+      const result = await this.generationService.cancelGenerationJob(
+        jobId,
+        actualUserId,
+        reason
+      );
 
-      logger.info('Generation job cancelled', {
+      logger.info("Generation job cancelled", {
         jobId,
         userId: actualUserId,
         reason,
-        creditsReleased: result.creditsReleased
+        creditsReleased: result.creditsReleased,
       });
 
       res.json({
@@ -294,33 +362,32 @@ class PosterController {
         message: result.message,
         jobId: result.jobId,
         status: result.status,
-        creditsReleased: result.creditsReleased
+        creditsReleased: result.creditsReleased,
       });
-
     } catch (error) {
-      if (error.name === 'GenerationError') {
-        const statusCode = error.code === 'JOB_NOT_FOUND' ? 404 : 400;
+      if (error.name === "GenerationError") {
+        const statusCode = error.code === "JOB_NOT_FOUND" ? 404 : 400;
         return res.status(statusCode).json({
           success: false,
-          error: error.code === 'JOB_NOT_FOUND' ? 'Job not found' : error.code,
+          error: error.code === "JOB_NOT_FOUND" ? "Job not found" : error.code,
           message: error.message,
-          details: error.details
+          details: error.details,
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error cancelling generation job:', error);
+      logger.error("Error cancelling generation job:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to cancel generation job'
+        error: "Internal server error",
+        message: "Failed to cancel generation job",
       });
     }
   }
@@ -335,17 +402,20 @@ class PosterController {
       const { jobId } = req.params;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const result = await this.generationService.retryGenerationJob(jobId, actualUserId);
+      const result = await this.generationService.retryGenerationJob(
+        jobId,
+        actualUserId
+      );
 
-      logger.info('Generation job retried', {
+      logger.info("Generation job retried", {
         jobId,
         userId: actualUserId,
-        status: result.status
+        status: result.status,
       });
 
       res.json({
@@ -354,34 +424,37 @@ class PosterController {
         jobId: result.jobId,
         status: result.status,
         prompt: result.prompt,
-        externalJobId: result.externalJobId
+        externalJobId: result.externalJobId,
       });
-
     } catch (error) {
-      if (error.name === 'GenerationError') {
-        const statusCode = error.code === 'JOB_NOT_FOUND' ? 404 :
-          error.code === 'INSUFFICIENT_CREDITS' ? 402 : 400;
+      if (error.name === "GenerationError") {
+        const statusCode =
+          error.code === "JOB_NOT_FOUND"
+            ? 404
+            : error.code === "INSUFFICIENT_CREDITS"
+            ? 402
+            : 400;
         return res.status(statusCode).json({
           success: false,
           error: error.code,
           message: error.message,
-          details: error.details
+          details: error.details,
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error retrying generation job:', error);
+      logger.error("Error retrying generation job:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to retry generation job'
+        error: "Internal server error",
+        message: "Failed to retry generation job",
       });
     }
   }
@@ -397,101 +470,117 @@ class PosterController {
       const { platform } = req.query; // Optional: filter for specific platform
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const job = await this.generationService.getGenerationJobForUser(jobId, actualUserId);
+      const job = await this.generationService.getGenerationJobForUser(
+        jobId,
+        actualUserId
+      );
 
       if (!job) {
         return res.status(404).json({
           success: false,
-          error: 'Job not found',
-          message: 'Generation job not found or access denied'
+          error: "Job not found",
+          message: "Generation job not found or access denied",
         });
       }
 
-      if (job.status !== 'completed' || !job.result?.imageUrl) {
+      if (job.status !== "completed" || !job.result?.imageUrl) {
         return res.status(400).json({
           success: false,
-          error: 'Job not completed',
-          message: 'Poster generation is not completed yet'
+          error: "Job not completed",
+          message: "Poster generation is not completed yet",
         });
       }
 
       // Generate sharing URLs for different platforms
-      const baseUrl = process.env.FRONTEND_URL || 'https://jomobit.com';
+      const baseUrl = process.env.FRONTEND_URL || "https://jomobit.com";
       const posterUrl = job.result.imageUrl;
-      const businessName = job.profileId?.name || 'My Business';
+      const businessName = job.profileId?.name || "My Business";
       const shareText = `Check out my AI-generated poster for ${businessName} created with Jomobit!`;
-      const hashtags = '#Jomobit #AIGenerated #Poster #Marketing';
+      const hashtags = "#Jomobit #AIGenerated #Poster #Marketing";
 
       const allSharingOptions = {
         instagram: {
-          platform: 'Instagram',
-          type: 'download',
+          platform: "Instagram",
+          type: "download",
           url: posterUrl,
           downloadUrl: `${baseUrl}/api/posters/${jobId}/download?quality=high`,
-          instructions: 'Download the high-quality image and share it on Instagram',
+          instructions:
+            "Download the high-quality image and share it on Instagram",
           recommendedText: `${shareText} ${hashtags}`,
-          aspectRatio: job.templateId?.aspectRatio ?
-            { width: job.templateId.aspectRatio.width, height: job.templateId.aspectRatio.height } :
-            { width: 1080, height: 1080 }
+          aspectRatio: job.templateId?.aspectRatio
+            ? {
+                width: job.templateId.aspectRatio.width,
+                height: job.templateId.aspectRatio.height,
+              }
+            : { width: 1080, height: 1080 },
         },
         whatsapp: {
-          platform: 'WhatsApp',
-          type: 'share_url',
-          url: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${posterUrl}`)}`,
+          platform: "WhatsApp",
+          type: "share_url",
+          url: `https://wa.me/?text=${encodeURIComponent(
+            `${shareText} ${posterUrl}`
+          )}`,
           text: shareText,
           imageUrl: posterUrl,
-          instructions: 'Click to share via WhatsApp'
+          instructions: "Click to share via WhatsApp",
         },
         facebook: {
-          platform: 'Facebook',
-          type: 'share_url',
-          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(posterUrl)}&quote=${encodeURIComponent(shareText)}`,
+          platform: "Facebook",
+          type: "share_url",
+          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+            posterUrl
+          )}&quote=${encodeURIComponent(shareText)}`,
           text: shareText,
           imageUrl: posterUrl,
-          instructions: 'Click to share on Facebook'
+          instructions: "Click to share on Facebook",
         },
         twitter: {
-          platform: 'Twitter',
-          type: 'share_url',
-          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(`${shareText} ${hashtags}`)}&url=${encodeURIComponent(posterUrl)}`,
+          platform: "Twitter",
+          type: "share_url",
+          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+            `${shareText} ${hashtags}`
+          )}&url=${encodeURIComponent(posterUrl)}`,
           text: `${shareText} ${hashtags}`,
           imageUrl: posterUrl,
-          instructions: 'Click to share on Twitter'
+          instructions: "Click to share on Twitter",
         },
         linkedin: {
-          platform: 'LinkedIn',
-          type: 'share_url',
-          url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(posterUrl)}&summary=${encodeURIComponent(shareText)}`,
+          platform: "LinkedIn",
+          type: "share_url",
+          url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(
+            posterUrl
+          )}&summary=${encodeURIComponent(shareText)}`,
           text: shareText,
           imageUrl: posterUrl,
-          instructions: 'Click to share on LinkedIn'
+          instructions: "Click to share on LinkedIn",
         },
         direct: {
-          platform: 'Direct Link',
-          type: 'direct',
+          platform: "Direct Link",
+          type: "direct",
           url: posterUrl,
           downloadUrl: `${baseUrl}/api/posters/${jobId}/download`,
           thumbnailUrl: job.result.thumbnailUrl || posterUrl,
-          instructions: 'Copy link or download image directly'
-        }
+          instructions: "Copy link or download image directly",
+        },
       };
 
       // Filter by platform if specified
-      const sharingOptions = platform && allSharingOptions[platform]
-        ? { [platform]: allSharingOptions[platform] }
-        : allSharingOptions;
+      const sharingOptions =
+        platform && allSharingOptions[platform]
+          ? { [platform]: allSharingOptions[platform] }
+          : allSharingOptions;
 
       // Log sharing activity
-      logger.info('Poster sharing options requested', {
+      logger.info("Poster sharing options requested", {
         jobId,
         userId: actualUserId,
-        platform: platform || 'all',
-        businessProfile: job.profileId?.name
+        platform: platform || "all",
+        businessProfile: job.profileId?.name,
       });
 
       res.json({
@@ -500,31 +589,37 @@ class PosterController {
         posterUrl,
         businessProfile: {
           id: job.profileId._id,
-          name: job.profileId.name
+          name: job.profileId.name,
         },
         template: {
           id: job.templateId._id,
           name: job.templateId.name,
-          aspectRatio: job.templateId.aspectRatio
+          aspectRatio: job.templateId.aspectRatio,
         },
         sharingOptions,
-        supportedPlatforms: ['instagram', 'whatsapp', 'facebook', 'twitter', 'linkedin', 'direct']
+        supportedPlatforms: [
+          "instagram",
+          "whatsapp",
+          "facebook",
+          "twitter",
+          "linkedin",
+          "direct",
+        ],
       });
-
     } catch (error) {
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error fetching poster sharing options:', error);
+      logger.error("Error fetching poster sharing options:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch sharing options'
+        error: "Internal server error",
+        message: "Failed to fetch sharing options",
       });
     }
   }
@@ -537,29 +632,32 @@ class PosterController {
     try {
       const userId = req.user.id;
       const { jobId } = req.params;
-      const { quality = 'high', format = 'png' } = req.query;
+      const { quality = "high", format = "png" } = req.query;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const job = await this.generationService.getGenerationJobForUser(jobId, actualUserId);
+      const job = await this.generationService.getGenerationJobForUser(
+        jobId,
+        actualUserId
+      );
 
       if (!job) {
         return res.status(404).json({
           success: false,
-          error: 'Job not found',
-          message: 'Generation job not found or access denied'
+          error: "Job not found",
+          message: "Generation job not found or access denied",
         });
       }
 
-      if (job.status !== 'completed' || !job.result?.imageUrl) {
+      if (job.status !== "completed" || !job.result?.imageUrl) {
         return res.status(400).json({
           success: false,
-          error: 'Job not completed',
-          message: 'Poster generation is not completed yet'
+          error: "Job not completed",
+          message: "Poster generation is not completed yet",
         });
       }
 
@@ -568,24 +666,30 @@ class PosterController {
       let downloadUrl = baseImageUrl;
 
       // Apply ImageKit transformations for different quality levels
-      if (baseImageUrl.includes('imagekit.io')) {
-        const transformations = this.getImageKitTransformations(quality, format);
-        downloadUrl = baseImageUrl.replace('/tr:', `/tr:${transformations},`);
+      if (baseImageUrl.includes("imagekit.io")) {
+        const transformations = this.getImageKitTransformations(
+          quality,
+          format
+        );
+        downloadUrl = baseImageUrl.replace("/tr:", `/tr:${transformations},`);
       }
 
       // Generate appropriate filename
-      const businessName = job.profileId?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'poster';
-      const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `jomobit_${businessName}_${timestamp}_${jobId.slice(-8)}.${format}`;
+      const businessName =
+        job.profileId?.name?.replace(/[^a-zA-Z0-9]/g, "_") || "poster";
+      const timestamp = new Date().toISOString().split("T")[0];
+      const filename = `jomobit_${businessName}_${timestamp}_${jobId.slice(
+        -8
+      )}.${format}`;
 
       // Log download activity
-      logger.info('Poster download requested', {
+      logger.info("Poster download requested", {
         jobId,
         userId: actualUserId,
         quality,
         format,
         filename,
-        businessProfile: job.profileId?.name
+        businessProfile: job.profileId?.name,
       });
 
       res.json({
@@ -599,27 +703,29 @@ class PosterController {
           businessProfile: job.profileId?.name,
           templateName: job.templateId?.name,
           createdAt: job.createdAt,
-          aspectRatio: job.templateId?.aspectRatio ?
-            { width: job.templateId.aspectRatio.width, height: job.templateId.aspectRatio.height } :
-            { width: 1080, height: 1080 }
+          aspectRatio: job.templateId?.aspectRatio
+            ? {
+                width: job.templateId.aspectRatio.width,
+                height: job.templateId.aspectRatio.height,
+              }
+            : { width: 1080, height: 1080 },
         },
-        message: 'Download URL generated successfully'
+        message: "Download URL generated successfully",
       });
-
     } catch (error) {
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error downloading poster:', error);
+      logger.error("Error downloading poster:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to download poster'
+        error: "Internal server error",
+        message: "Failed to download poster",
       });
     }
   }
@@ -634,18 +740,21 @@ class PosterController {
       const { jobId } = req.params;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
 
-      const job = await this.generationService.getGenerationJobForUser(jobId, actualUserId);
+      const job = await this.generationService.getGenerationJobForUser(
+        jobId,
+        actualUserId
+      );
 
       if (!job) {
         return res.status(404).json({
           success: false,
-          error: 'Job not found',
-          message: 'Generation job not found or access denied'
+          error: "Job not found",
+          message: "Generation job not found or access denied",
         });
       }
 
@@ -656,30 +765,30 @@ class PosterController {
           status: job.status,
           priority: job.priority,
           creditsReserved: job.creditsReserved,
-          retryCount: job.retryCount
+          retryCount: job.retryCount,
         },
         businessProfile: {
           id: job.profileId._id,
           name: job.profileId.name,
           tagline: job.profileId.tagline,
           colorPalette: job.profileId.colorPalette,
-          typography: job.profileId.typography
+          typography: job.profileId.typography,
         },
         template: {
           id: job.templateId._id,
           name: job.templateId.name,
           aspectRatio: job.templateId.aspectRatio,
           type: job.templateId.type,
-          tags: job.templateId.tags
+          tags: job.templateId.tags,
         },
         aiProvider: {
           llm: job.aiProvider.llm,
-          diffusion: job.aiProvider.diffusion
+          diffusion: job.aiProvider.diffusion,
         },
         generation: {
           prompt: job.prompt?.generated,
           promptParameters: job.prompt?.parameters,
-          promptGeneratedAt: job.prompt?.generatedAt
+          promptGeneratedAt: job.prompt?.generatedAt,
         },
         timing: {
           createdAt: job.createdAt,
@@ -687,49 +796,54 @@ class PosterController {
           completedAt: job.completedAt,
           totalDuration: job.getProcessingDuration(),
           promptGenerationTime: job.timing?.promptGenerationTime,
-          imageGenerationTime: job.timing?.imageGenerationTime
+          imageGenerationTime: job.timing?.imageGenerationTime,
         },
-        result: job.status === 'completed' ? {
-          imageUrl: job.result.imageUrl,
-          thumbnailUrl: job.result.thumbnailUrl,
-          imagekitFileId: job.result.imagekitFileId,
-          metadata: job.result.metadata
-        } : null,
-        error: job.status === 'failed' && job.error ? {
-          message: job.error.message,
-          code: job.error.code,
-          provider: job.error.provider,
-          occurredAt: job.error.occurredAt
-        } : null
+        result:
+          job.status === "completed"
+            ? {
+                imageUrl: job.result.imageUrl,
+                thumbnailUrl: job.result.thumbnailUrl,
+                imagekitFileId: job.result.imagekitFileId,
+                metadata: job.result.metadata,
+              }
+            : null,
+        error:
+          job.status === "failed" && job.error
+            ? {
+                message: job.error.message,
+                code: job.error.code,
+                provider: job.error.provider,
+                occurredAt: job.error.occurredAt,
+              }
+            : null,
       };
 
-      logger.info('Poster metadata requested', {
+      logger.info("Poster metadata requested", {
         jobId,
         userId: actualUserId,
         status: job.status,
-        businessProfile: job.profileId?.name
+        businessProfile: job.profileId?.name,
       });
 
       res.json({
         success: true,
         jobId,
-        metadata
+        metadata,
       });
-
     } catch (error) {
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error fetching poster metadata:', error);
+      logger.error("Error fetching poster metadata:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch poster metadata'
+        error: "Internal server error",
+        message: "Failed to fetch poster metadata",
       });
     }
   }
@@ -743,24 +857,24 @@ class PosterController {
 
     // Quality settings
     switch (quality) {
-      case 'low':
-        transformations.push('q-60');
+      case "low":
+        transformations.push("q-60");
         break;
-      case 'medium':
-        transformations.push('q-80');
+      case "medium":
+        transformations.push("q-80");
         break;
-      case 'high':
+      case "high":
       default:
-        transformations.push('q-90');
+        transformations.push("q-90");
         break;
     }
 
     // Format
-    if (format && format !== 'png') {
+    if (format && format !== "png") {
       transformations.push(`f-${format}`);
     }
 
-    return transformations.join(',');
+    return transformations.join(",");
   }
 
   /**
@@ -768,7 +882,7 @@ class PosterController {
    * @private
    */
   estimateFileSize(aspectRatio, quality) {
-    if (!aspectRatio) return 'Unknown';
+    if (!aspectRatio) return "Unknown";
 
     const { width, height } = aspectRatio;
     const pixels = width * height;
@@ -776,13 +890,13 @@ class PosterController {
     // Rough estimation based on quality
     let bytesPerPixel;
     switch (quality) {
-      case 'low':
+      case "low":
         bytesPerPixel = 1.5;
         break;
-      case 'medium':
+      case "medium":
         bytesPerPixel = 2.5;
         break;
-      case 'high':
+      case "high":
       default:
         bytesPerPixel = 4;
         break;
@@ -794,7 +908,7 @@ class PosterController {
     if (estimatedBytes < 1024 * 1024) {
       return `${Math.round(estimatedBytes / 1024)}KB`;
     } else {
-      return `${Math.round(estimatedBytes / (1024 * 1024) * 10) / 10}MB`;
+      return `${Math.round((estimatedBytes / (1024 * 1024)) * 10) / 10}MB`;
     }
   }
 
@@ -808,7 +922,7 @@ class PosterController {
       const { startDate, endDate, profileId } = req.query;
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(userId);
       const actualUserId = userResult.user._id;
@@ -817,7 +931,7 @@ class PosterController {
         userId: actualUserId,
         ...(startDate && { startDate: new Date(startDate) }),
         ...(endDate && { endDate: new Date(endDate) }),
-        ...(profileId && { profileId })
+        ...(profileId && { profileId }),
       };
 
       const result = await this.generationService.getGenerationStats(filters);
@@ -825,23 +939,22 @@ class PosterController {
       res.json({
         success: true,
         stats: result.stats,
-        filters
+        filters,
       });
-
     } catch (error) {
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'User profile not found in database'
+          error: "User not found",
+          message: "User profile not found in database",
         });
       }
 
-      logger.error('Error fetching user generation statistics:', error);
+      logger.error("Error fetching user generation statistics:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch generation statistics'
+        error: "Internal server error",
+        message: "Failed to fetch generation statistics",
       });
     }
   }
@@ -864,8 +977,8 @@ class PosterController {
         endDate,
         page = 1,
         limit = 50,
-        sortBy = 'createdAt',
-        sortOrder = 'desc'
+        sortBy = "createdAt",
+        sortOrder = "desc",
       } = req.query;
 
       const filters = {
@@ -875,7 +988,7 @@ class PosterController {
         ...(status && { status }),
         ...(aiProvider && { aiProvider }),
         ...(startDate && { startDate: new Date(startDate) }),
-        ...(endDate && { endDate: new Date(endDate) })
+        ...(endDate && { endDate: new Date(endDate) }),
       };
 
       const options = {
@@ -883,24 +996,26 @@ class PosterController {
         limit: parseInt(limit),
         sortBy,
         sortOrder,
-        includePopulated: true // Include user, profile, template data
+        includePopulated: true, // Include user, profile, template data
       };
 
-      const result = await this.generationService.getUserGenerationHistory(null, { ...options, ...filters });
+      const result = await this.generationService.getUserGenerationHistory(
+        null,
+        { ...options, ...filters }
+      );
 
       res.json({
         success: true,
         jobs: result.jobs,
         pagination: result.pagination,
-        filters
+        filters,
       });
-
     } catch (error) {
-      logger.error('Error fetching admin generation jobs:', error);
+      logger.error("Error fetching admin generation jobs:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch generation jobs'
+        error: "Internal server error",
+        message: "Failed to fetch generation jobs",
       });
     }
   }
@@ -918,7 +1033,7 @@ class PosterController {
         ...(endDate && { endDate: new Date(endDate) }),
         ...(userId && { userId }),
         ...(profileId && { profileId }),
-        ...(templateId && { templateId })
+        ...(templateId && { templateId }),
       };
 
       const result = await this.generationService.getGenerationStats(filters);
@@ -926,15 +1041,14 @@ class PosterController {
       res.json({
         success: true,
         stats: result.stats,
-        filters
+        filters,
       });
-
     } catch (error) {
-      logger.error('Error fetching admin generation statistics:', error);
+      logger.error("Error fetching admin generation statistics:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch generation statistics'
+        error: "Internal server error",
+        message: "Failed to fetch generation statistics",
       });
     }
   }

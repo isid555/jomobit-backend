@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const { CreditService } = require('./creditService');
 const logger = require('../utils/logger');
+const Plan = require('../models/Plan');
 
 /**
  * Custom error classes for user operations
@@ -52,7 +53,7 @@ class UserService {
    */
   async createOrUpdateFromAuth0(auth0User, options = {}) {
     const { grantDefaultCredits = true } = options;
-    
+
     try {
       logger.info('Processing Auth0 user data', {
         auth0Id: auth0User.auth0Id,
@@ -78,7 +79,7 @@ class UserService {
               email: auth0User.email
             }
           );
-          
+
           logger.info('Default credits granted to new user', {
             userId: user._id,
             auth0Id: auth0User.user_id,
@@ -118,71 +119,71 @@ class UserService {
   }
 
 
-    /**
-   * Add new identity to existing user (for account linking)
-   * @param {string|ObjectId} userId - User ID
-   * @param {Object} newUserData - New identity data from Auth0
-   * @returns {Promise<Object>} Updated user
-   */
-    async addIdentityToUser(userId, newUserData) {
-      try {
-        logger.info('Adding identity to existing user', {
-          userId,
-          newAuth0Id: newUserData.auth0Id,
-          newProvider: newUserData.primaryIdentity?.provider
-        });
-  
-        // Update user with new identity information
-        const updatedUser = await User.findByIdAndUpdate(
-          userId,
-          {
-            $set: {
-              auth0Id: newUserData.auth0Id, // Update to latest Auth0 ID
-              metadata: { ...newUserData.metadata },
-              lastSyncAt: new Date(),
-              emailVerified: newUserData.emailVerified || true,
-              status: 'active' // Activate user when linking social account
-            },
-            $addToSet: {
-              identities: { $each: newUserData.identities || [] }
-            }
+  /**
+ * Add new identity to existing user (for account linking)
+ * @param {string|ObjectId} userId - User ID
+ * @param {Object} newUserData - New identity data from Auth0
+ * @returns {Promise<Object>} Updated user
+ */
+  async addIdentityToUser(userId, newUserData) {
+    try {
+      logger.info('Adding identity to existing user', {
+        userId,
+        newAuth0Id: newUserData.auth0Id,
+        newProvider: newUserData.primaryIdentity?.provider
+      });
+
+      // Update user with new identity information
+      const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        {
+          $set: {
+            auth0Id: newUserData.auth0Id, // Update to latest Auth0 ID
+            metadata: { ...newUserData.metadata },
+            lastSyncAt: new Date(),
+            emailVerified: newUserData.emailVerified || true,
+            status: 'active' // Activate user when linking social account
           },
-          { 
-            new: true, 
-            runValidators: true 
+          $addToSet: {
+            identities: { $each: newUserData.identities || [] }
           }
-        );
-  
-        if (!updatedUser) {
-          throw new UserNotFoundError(userId);
+        },
+        {
+          new: true,
+          runValidators: true
         }
-  
-        logger.info('Identity added to existing user successfully', {
-          userId: updatedUser._id,
-          auth0Id: updatedUser.auth0Id,
-          totalIdentities: updatedUser.identities?.length || 0
-        });
-  
-        return updatedUser.toObject();
-  
-      } catch (error) {
-        if (error instanceof UserNotFoundError) {
-          throw error;
-        }
-  
-        logger.error('Error adding identity to user', {
-          userId,
-          newAuth0Id: newUserData.auth0Id,
-          error: error.message
-        });
-  
-        throw new UserOperationError(
-          `Failed to add identity to user: ${error.message}`,
-          'addIdentityToUser',
-          userId
-        );
+      );
+
+      if (!updatedUser) {
+        throw new UserNotFoundError(userId);
       }
+
+      logger.info('Identity added to existing user successfully', {
+        userId: updatedUser._id,
+        auth0Id: updatedUser.auth0Id,
+        totalIdentities: updatedUser.identities?.length || 0
+      });
+
+      return updatedUser.toObject();
+
+    } catch (error) {
+      if (error instanceof UserNotFoundError) {
+        throw error;
+      }
+
+      logger.error('Error adding identity to user', {
+        userId,
+        newAuth0Id: newUserData.auth0Id,
+        error: error.message
+      });
+
+      throw new UserOperationError(
+        `Failed to add identity to user: ${error.message}`,
+        'addIdentityToUser',
+        userId
+      );
     }
+  }
 
   /**
    * Handle user status update from Auth0 webhooks
@@ -295,31 +296,31 @@ class UserService {
    */
   async getUserByEmail(email) {
     // try {
-      const user = await User.findByEmail(email);
-      return user;
-      // if (!user) {
-      //   throw new UserNotFoundError(email);
-      // }
+    const user = await User.findByEmail(email);
+    return user;
+    // if (!user) {
+    //   throw new UserNotFoundError(email);
+    // }
 
-      // return {
-      //   success: true,
-      //   user: user.toObject()
-      // };
+    // return {
+    //   success: true,
+    //   user: user.toObject()
+    // };
 
     // } catch (error) {
-      // if (error instanceof UserNotFoundError) {
-      //   throw error;
-      // }
+    // if (error instanceof UserNotFoundError) {
+    //   throw error;
+    // }
 
-      // logger.error('Error getting user by email', {
-      //   email,
-      //   error: error.message
-      // });
-      // throw new UserOperationError(
-      //   `Failed to get user: ${error.message}`,
-      //   'getUserByEmail',
-      //   email
-      // );
+    // logger.error('Error getting user by email', {
+    //   email,
+    //   error: error.message
+    // });
+    // throw new UserOperationError(
+    //   `Failed to get user: ${error.message}`,
+    //   'getUserByEmail',
+    //   email
+    // );
     // }
   }
 
@@ -682,6 +683,83 @@ class UserService {
   }
 
   /**
+   * Create a guest user for trial generation
+   * @returns {Promise<Object>} Created guest user
+   */
+  async createGuestUser() {
+    try {
+      const randomString = (length) => {
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      };
+
+      // Generate fake auth0Id for guest users
+      const guestAuth0Id = `guest|${Date.now()}_${randomString(16)}`;
+      const guestIdentifier = `guest_${Date.now()}_${randomString(8)}`;
+      const expiresAt = null // new Date(Date.now() + (24 * 60 * 60 * 1000)); // 24 hours
+
+      // Generate unique placeholder email for guest users
+      // Format: guest_<timestamp>_<random>@internal.jomobit.com
+      const guestEmail = `guest_${Date.now()}_${randomString(8)}@internal.jomobit.com`;
+
+      const guestUser = new User({
+        auth0Id: guestAuth0Id,
+        email: guestEmail, // Add unique email for guest users
+        guestIdentifier,
+        isGuest: true,
+        status: 'active',
+        emailVerified: false,
+        metadata: {
+          name: `Guest User ${randomString(4)}`
+        },
+        roles: ['user'],
+        expiresAt
+      });
+
+      await guestUser.save();
+
+      // Grant 1 credit to guest user
+      await this.creditService.grantDefaultCredits(
+        guestUser._id,
+        1,
+        {
+          source: 'guest_trial',
+          guestIdentifier
+        }
+      );
+
+      logger.info('Guest user created successfully', {
+        userId: guestUser._id,
+        guestIdentifier,
+        guestEmail,
+        auth0Id: guestAuth0Id,
+        expiresAt
+      });
+
+      return {
+        success: true,
+        user: guestUser.toObject(),
+        message: 'Guest user created successfully'
+      };
+
+    } catch (error) {
+      logger.error('Error creating guest user', {
+        error: error.message,
+        stack: error.stack
+      });
+      throw new UserOperationError(
+        `Failed to create guest user: ${error.message}`,
+        'createGuestUser',
+        null
+      );
+    }
+  }
+
+  /**
    * Get business profile count for a user
    * @param {string|ObjectId} userId - User ID
    * @returns {Promise<Object>} Business profile count
@@ -689,11 +767,11 @@ class UserService {
   async getUserBusinessProfileCount(userId) {
     try {
       const BusinessProfile = require('../models/BusinessProfile');
-      const count = await BusinessProfile.countDocuments({ 
+      const count = await BusinessProfile.countDocuments({
         userId: userId,
         isDeleted: { $ne: true }
       });
-      
+
       logger.info('Retrieved business profile count', {
         userId,
         count
@@ -725,26 +803,33 @@ class UserService {
   async getUserPlanDetails(userId) {
     try {
       const Subscription = require('../models/Subscription');
-      
+
       // Get user's active subscription with populated plan
       const subscription = await Subscription.getUserActiveSubscription(userId);
-      
+
       // Default to free plan if no active subscription
       if (!subscription || !subscription.planId) {
         logger.info('No active subscription found, returning free plan defaults', {
           userId
         });
-        
+
+
+        const FreePlan = await Plan.findOne({ tier: "free", status: "active" });
+
+
+
+
         return {
           success: true,
-          plan: 'Free',
-          tier: 'free',
-          brandsLimit: 1
+          plan: FreePlan.name,
+          tier: FreePlan.tier,
+          brandsLimit: FreePlan.features?.businessProfiles?.limit || 1
         };
+
       }
 
       const plan = subscription.planId;
-      
+
       logger.info('Retrieved user plan details', {
         userId,
         planName: plan.name,
@@ -764,7 +849,7 @@ class UserService {
         userId,
         error: error.message
       });
-      
+
       // Return free plan defaults on error
       return {
         success: true,

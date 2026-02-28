@@ -76,11 +76,15 @@ class ImageKit {
    * Upload image using official ImageKit SDK (Recommended)
    * @param {Buffer|string} imageData - Image data (buffer or base64)
    * @param {string} fileName - File name
+   * @param {string} [folder] - Folder name (optional, defaults to this.defaultFolder)
    * @returns {Promise<Object>} Upload result
    */
-  async uploadImage(imageData, fileName, folder=this.defaultFolder) {
+  async uploadImage(imageData, fileName, folder) {
     try {
-      console.log(`Starting ImageKit upload for: ${fileName}`);
+      // Use provided folder or fall back to defaultFolder
+      const targetFolder = folder || this.defaultFolder;
+
+      console.log(`Starting ImageKit upload for: ${fileName} to folder: ${targetFolder}`);
 
       let uploadData;
 
@@ -89,7 +93,7 @@ class ImageKit {
         uploadData = {
           file: imageData,
           fileName: fileName,
-          folder: folder,
+          folder: targetFolder,
           useUniqueFileName: true,
         };
       } else if (typeof imageData === "string") {
@@ -98,7 +102,7 @@ class ImageKit {
           uploadData = {
             file: imageData,
             fileName: fileName,
-            folder: this.defaultFolder,
+            folder: targetFolder,
             useUniqueFileName: true,
           };
         } else {
@@ -107,7 +111,7 @@ class ImageKit {
           uploadData = {
             file: cleanBase64,
             fileName: fileName,
-            folder: this.defaultFolder,
+            folder: targetFolder,
             useUniqueFileName: true,
           };
         }
@@ -151,7 +155,7 @@ class ImageKit {
       // Generate a unique token
       const uuidToken = uuidv4();
       const { token, expire, signature } =
-        this.imagekit.getAuthenticationParameters(uuidToken, {expires: 3600});
+        this.imagekit.getAuthenticationParameters(uuidToken, { expires: 3600 });
 
       return {
         token,

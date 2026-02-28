@@ -42,6 +42,60 @@ class TemplateService {
     // Default pagination settings
     this.DEFAULT_PAGE_SIZE = 20;
     this.MAX_PAGE_SIZE = 100;
+
+    // Bind methods
+    this.getTagsTypeahead = this.getTagsTypeahead.bind(this);
+  }
+
+  /**
+   * Get tags typeahead suggestions
+   * @param {string} query - Search query for tags
+   * @param {number} limit - Maximum number of results (default: 8, max: 20)
+   * @returns {Promise<Object>} Matching tags with counts
+   */
+  async getTagsTypeahead(query, limit = 8) {
+    try {
+      if (!query || typeof query !== 'string' || query.trim().length === 0) {
+        throw new TemplateValidationError('Query is required and must be a non-empty string');
+      }
+
+      const trimmedQuery = query.trim();
+      const validatedLimit = Math.min(20, Math.max(1, parseInt(limit)));
+
+      logger.info('Getting tags typeahead', {
+        query: trimmedQuery,
+        limit: validatedLimit,
+        operation: 'getTagsTypeahead',
+      });
+
+      const tags = await Template.getTagsTypeahead(trimmedQuery, validatedLimit);
+
+      logger.info('Tags typeahead retrieved successfully', {
+        query: trimmedQuery,
+        resultsCount: tags.length,
+      });
+
+      return {
+        success: true,
+        tags,
+        query: trimmedQuery,
+        total: tags.length,
+      };
+    } catch (error) {
+      if (error instanceof TemplateValidationError) {
+        throw error;
+      }
+
+      logger.error('Error getting tags typeahead', {
+        query,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw new TemplateOperationError(
+        `Failed to get tags typeahead: ${error.message}`,
+        'getTagsTypeahead'
+      );
+    }
   }
 
   /**
@@ -394,6 +448,58 @@ class TemplateService {
   }
 
   /**
+   * Get featured templates for trial/guest users
+   * Returns recently added featured templates without authentication
+   * @param {number} limit - Number of templates to return (default: 15, max: 50)
+   * @returns {Promise<Object>} Trial templates
+   */
+  async getTrialTemplates(limit = 15) {
+    try {
+      // Validate and constrain limit
+      const validatedLimit = Math.min(50, Math.max(1, parseInt(limit)));
+
+      logger.info("Getting trial templates", {
+        limit: validatedLimit,
+        operation: "getTrialTemplates",
+      });
+
+      // Fetch featured, active, public templates sorted by creation date (most recent first)
+      const templates = await Template.find({
+        isFeatured: true,
+        status: "active",
+        isPublic: true,
+      })
+        .select("-__v -createdBy") // Exclude sensitive fields
+        .sort({ createdAt: -1 }) // Most recent first
+        .limit(validatedLimit)
+        .lean() // Return plain JavaScript objects for better performance
+        .exec();
+
+      logger.info("Trial templates retrieved successfully", {
+        count: templates.length,
+        requestedLimit: limit,
+        actualLimit: validatedLimit,
+      });
+
+      return {
+        success: true,
+        templates,
+        count: templates.length,
+      };
+    } catch (error) {
+      logger.error("Error getting trial templates", {
+        limit,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw new TemplateOperationError(
+        `Failed to get trial templates: ${error.message}`,
+        "getTrialTemplates"
+      );
+    }
+  }
+
+  /**
    * Increment template usage count
    * @param {string|ObjectId} templateId - Template ID
    * @returns {Promise<Object>} Operation result
@@ -698,9 +804,8 @@ class TemplateService {
         template: template.getSummary(),
         oldFeaturedStatus,
         newFeaturedStatus: template.isFeatured,
-        message: `Template ${
-          template.isFeatured ? "featured" : "unfeatured"
-        } successfully`,
+        message: `Template ${template.isFeatured ? "featured" : "unfeatured"
+          } successfully`,
       };
     } catch (error) {
       if (

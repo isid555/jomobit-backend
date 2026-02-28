@@ -30,11 +30,32 @@ const generationJobSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Job priority (for queue processing)
+    priority: {
+      type: String,
+      enum: ["low", "normal", "high"],
+      default: "normal",
+      index: true,
+    },
+
     // Job status
     status: {
       type: String,
-      enum: ["pending", "processing", "completed", "failed", "cancelled"],
-      default: "pending",
+      enum: [
+        "pending",
+        "queued",
+        "processing",
+        "completed",
+        "failed",
+        "cancelled",
+      ],
+      default: "queued",
+      index: true,
+    },
+
+    // External service job tracking
+    externalJobId: {
+      type: String,
       index: true,
     },
 
@@ -45,35 +66,59 @@ const generationJobSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // AI provider configuration
-    aiProvider: {
-      llm: {
+    // Full Generation Context
+    generationContext: {
+      posterType: {
         type: String,
+        enum: ["wish", "cta", "awareness"],
         required: true,
-        enum: ["openai", "gemini"],
-        index: true,
+        index: true
       },
-      diffusion: {
+      diffusionModel: {
         type: String,
+        enum: ["nano_banana", "nano_banana_pro", "seeddream_4_5", "gpt_1_5_image", "midjourney"],
         required: true,
-        enum: ["openai", "ideogram", "nano_banana"],
-        index: true,
+        index: true
       },
-    },
-
-    // Generated prompt information
-    prompt: {
-      generated: {
+      diffusionProvider: {
         type: String,
-        maxlength: 2500,
+        enum: ["fal-ai", "legnext"],
+        required: true,
+        index: true
       },
-      parameters: {
+      posterSpecs: {
         type: mongoose.Schema.Types.Mixed,
-        default: {},
+        required: true
       },
-      generatedAt: {
-        type: Date,
+      template: {
+        templateId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Template",
+          index: true
+        },
+        festivalName: {
+          type: String,
+        },
+        templateMeta: {
+          type: mongoose.Schema.Types.Mixed,
+        }
       },
+      concept: {
+        type: mongoose.Schema.Types.Mixed,
+      },
+      creativeBlueprint: {
+        type: mongoose.Schema.Types.Mixed,
+      },
+      copywriting: {
+        type: mongoose.Schema.Types.Mixed,
+      },
+      prompt: {
+        type: "String",
+        default: null
+      },
+      enahancementMeta: {
+        type: mongoose.Schema.Types.Mixed,
+      }
     },
 
     // Generation result
@@ -91,12 +136,6 @@ const generationJobSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.Mixed,
         default: {},
       },
-    },
-
-    // External service job tracking
-    externalJobId: {
-      type: String,
-      index: true,
     },
 
     // Webhook data from AI services
@@ -135,6 +174,10 @@ const generationJobSchema = new mongoose.Schema(
       occurredAt: {
         type: Date,
       },
+
+      n8nError: {
+        type: mongoose.Schema.Types.Mixed
+      }
     },
 
     // Retry information
@@ -143,14 +186,6 @@ const generationJobSchema = new mongoose.Schema(
       default: 0,
       min: 0,
       max: 3,
-    },
-
-    // Job priority (for queue processing)
-    priority: {
-      type: String,
-      enum: ["low", "normal", "high"],
-      default: "normal",
-      index: true,
     },
 
     // Timestamps
@@ -242,8 +277,9 @@ generationJobSchema.statics = {
       profileId,
       templateId,
       creditsReserved,
-      aiProvider,
       priority = "normal",
+      generationContext,
+      isTrial = false
     } = jobData;
 
     return this.create({
@@ -251,9 +287,9 @@ generationJobSchema.statics = {
       profileId,
       templateId,
       creditsReserved,
-      aiProvider,
       priority,
-      status: "pending",
+      generationContext,
+      isTrial
     });
   },
 
@@ -490,6 +526,19 @@ generationJobSchema.methods = {
     return this.save();
   },
 
+  async n8nFail(error) {
+    this.status = "failed";
+    this.n8nError = {
+      message: error.message,
+      workflowDetails: error.workflow,
+      executionDetails: error.execution,
+      errorNodeDetails: error.errorNode,
+      occurredAt: new Date(),
+    };
+    this.completedAt = new Date();
+    return this.save();
+  },
+
   /**
    * Cancel job
    * @param {string} reason - Cancellation reason
@@ -518,6 +567,11 @@ generationJobSchema.methods = {
       parameters,
       generatedAt: new Date(),
     };
+    return this.save();
+  },
+
+  async updateStatus(status) {
+    this.status = status;
     return this.save();
   },
 

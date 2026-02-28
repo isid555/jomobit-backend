@@ -97,6 +97,9 @@ const router = express.Router();
  */
 // Poster generation endpoints
 router.post('/generate', authenticate, posterController.generatePoster.bind(posterController));
+
+router.post('/enhance', authenticate, posterController.enhancePoster.bind(posterController));
+
 /**
  * @swagger
  * /api/posters/history:

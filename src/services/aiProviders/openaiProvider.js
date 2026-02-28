@@ -247,12 +247,13 @@ class OpenAILLMProvider extends LLMProvider {
    * Generate marketing prompt using GPT
    * @param {Object} businessProfile - Business profile data
    * @param {Object} template - Template data
+   * @param {string} posterType - Type of poster: 'wish', 'cta', or 'awareness'
    * @returns {Promise<string>} Generated prompt
    */
-  async generatePrompt(businessProfile, template) {
+  async generatePrompt(businessProfile, template, posterType = 'wish') {
     try {
-      const systemPrompt = this.buildSystemPrompt(businessProfile, template);
-
+      const systemPrompt = this.buildSystemPrompt(businessProfile, template, posterType);
+      console.log(systemPrompt);
       const userPrompt = `Create a compelling marketing message for a poster that:
 - Highlights the unique value proposition
 - Includes a strong call-to-action

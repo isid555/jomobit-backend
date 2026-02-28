@@ -12,14 +12,35 @@ const userSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
-  
+
   // User email (unique identifier)
   email: {
     type: String,
-    required: true,
+    required: false,
     unique: true,
+    sparse: true,
     lowercase: true,
     trim: true,
+    index: true
+  },
+
+  // Guest user fields
+  isGuest: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+
+  guestIdentifier: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true
+  },
+
+  expiresAt: {
+    type: Date,
+    default: null,
     index: true
   },
 
@@ -35,7 +56,7 @@ const userSchema = new mongoose.Schema({
     provider: String,
     connection: String
   },
-  
+
   // User status
   status: {
     type: String,
@@ -43,13 +64,13 @@ const userSchema = new mongoose.Schema({
     default: 'pending',
     index: true
   },
-  
+
   // Email verification status
   emailVerified: {
     type: Boolean,
     default: false
   },
-  
+
   // User metadata from Auth0
   metadata: {
     name: String,
@@ -60,33 +81,33 @@ const userSchema = new mongoose.Schema({
     locale: String,
     updated_at: Date
   },
-  
+
   // User roles (from Auth0 custom claims)
   roles: [{
     type: String,
     enum: ['user', 'admin', 'moderator']
   }],
-  
+
   // User permissions (from Auth0)
   permissions: [String],
-  
+
   // Timestamps
   createdAt: {
     type: Date,
     default: Date.now,
     index: true
   },
-  
+
   updatedAt: {
     type: Date,
     default: Date.now
   },
-  
+
   lastLoginAt: {
     type: Date,
     index: true
   },
-  
+
   // Auth0 webhook tracking
   lastSyncAt: {
     type: Date,
@@ -95,7 +116,7 @@ const userSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   toJSON: {
-    transform: function(doc, ret) {
+    transform: function (doc, ret) {
       // Remove sensitive fields from JSON output
       delete ret.__v;
       return ret;
@@ -108,7 +129,7 @@ userSchema.index({ createdAt: -1 });
 userSchema.index({ lastLoginAt: -1 });
 
 // Pre-save middleware to update timestamps
-userSchema.pre('save', function(next) {
+userSchema.pre('save', function (next) {
   if (this.isModified() && !this.isNew) {
     this.updatedAt = new Date();
   }
@@ -168,10 +189,10 @@ userSchema.statics = {
     return this.findOneAndUpdate(
       { auth0Id: auth0User.user_id },
       userData,
-      { 
-        upsert: true, 
-        new: true, 
-        runValidators: true 
+      {
+        upsert: true,
+        new: true,
+        runValidators: true
       }
     ).exec();
   },
@@ -192,7 +213,7 @@ userSchema.statics = {
    */
   async getUsersByStatus(status, options = {}) {
     const { limit = 50, skip = 0, sort = { createdAt: -1 } } = options;
-    
+
     return this.find({ status })
       .sort(sort)
       .limit(limit)

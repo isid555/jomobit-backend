@@ -307,6 +307,13 @@ templateSchema.statics = {
       "raksha bandhan",
       "women's day",
       "ganesh chaturthi",
+      "new year",
+      "makar sankranti",
+      "pongal",
+      "lohri",
+      "republic day",
+      "ramadan kareem"
+
     ];
 
     const query = {
@@ -721,6 +728,49 @@ templateSchema.statics = {
       status: "active",
       isPublic: true,
     }).exec();
+  },
+
+  /**
+   * Get tags typeahead suggestions
+   * @param {string} query - Search query for tags
+   * @param {number} limit - Maximum number of results
+   * @returns {Promise<Array>} Matching tags with counts
+   */
+  async getTagsTypeahead(query, limit = 8) {
+    // Escape special regex characters in query
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
+    const pipeline = [
+      {
+        $match: {
+          status: 'active',
+          isPublic: true,
+        },
+      },
+      { $unwind: '$tags' },
+      {
+        $match: {
+          tags: { $regex: `^${escapedQuery}`, $options: 'i' },
+        },
+      },
+      {
+        $group: {
+          _id: '$tags',
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 0,
+          tag: '$_id',
+          count: 1,
+        },
+      },
+    ];
+
+    return this.aggregate(pipeline).exec();
   },
 
   /**
