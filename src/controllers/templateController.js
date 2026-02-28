@@ -1,5 +1,5 @@
-const TemplateService = require('../services/templateService');
-const logger = require('../utils/logger');
+const TemplateService = require("../services/templateService");
+const logger = require("../utils/logger");
 
 /**
  * Template Controller
@@ -17,6 +17,7 @@ class TemplateController {
     this.getFeaturedTemplates = this.getFeaturedTemplates.bind(this);
     this.getPopularTemplates = this.getPopularTemplates.bind(this);
     this.getRecentTemplates = this.getRecentTemplates.bind(this);
+    this.getTagsTypeahead = this.getTagsTypeahead.bind(this);
     this.createTemplate = this.createTemplate.bind(this);
     this.updateTemplate = this.updateTemplate.bind(this);
     this.deleteTemplate = this.deleteTemplate.bind(this);
@@ -29,6 +30,30 @@ class TemplateController {
   }
 
   /**
+   * Shuffles an array in place using the Fisher-Yates (Knuth) shuffle algorithm.
+   * @param {Array} array The array to shuffle.
+   */
+  shuffleArray(array) {
+    let currentIndex = array.length;
+    let randomIndex;
+
+    // While there remain elements to shuffle.
+    while (currentIndex !== 0) {
+      // Pick a remaining element.
+      randomIndex = Math.floor(Math.random() * currentIndex);
+      currentIndex--;
+
+      // And swap it with the current element.
+      [array[currentIndex], array[randomIndex]] = [
+        array[randomIndex],
+        array[currentIndex],
+      ];
+    }
+
+    return array;
+  }
+
+  /**
    * Get templates with filtering and pagination
    * GET /api/templates
    */
@@ -38,59 +63,76 @@ class TemplateController {
         category,
         type,
         tags,
+        colors,
         difficulty,
         aspectRatio,
         isFeatured,
         search,
-        status = 'active',
+        status = "active",
         page = 1,
         limit = 20,
-        sortBy = 'usageCount',
-        sortOrder = 'desc'
+        sortBy = "usageCount",
+        sortOrder = "desc",
       } = req.query;
 
       // Parse tags if provided as comma-separated string
-      const parsedTags = tags ? tags.split(',').map(tag => tag.trim()) : [];
+      const parsedTags = tags
+        ? typeof tags === "string"
+          ? tags.split(",").map((tag) => tag.trim())
+          : tags.map((tag) => tag.trim())
+        : [];
+
+      const parsedColors = colors
+        ? typeof colors === "string"
+          ? colors.split(",").map((color) => color.trim())
+          : colors.map((color) => color.trim())
+        : [];
 
       // Parse boolean values
-      const parsedIsFeatured = isFeatured === 'true' ? true : isFeatured === 'false' ? false : null;
+      const parsedIsFeatured =
+        isFeatured === "true" ? true : isFeatured === "false" ? false : null;
 
       // Build sort object
-      const sortField = sortBy === 'usageCount' ? 'metrics.usageCount' : sortBy;
-      const sort = { [sortField]: sortOrder === 'desc' ? -1 : 1 };
+      const sortField = sortBy === "usageCount" ? "metrics.usageCount" : sortBy;
+      const sort = { [sortField]: sortOrder === "desc" ? -1 : 1 };
 
       const filters = {
         category,
         type,
         tags: parsedTags,
+        colors: parsedColors,
         difficulty,
         aspectRatio,
         isFeatured: parsedIsFeatured,
         search,
-        status
+        status,
       };
 
       const options = {
         page: parseInt(page),
         limit: parseInt(limit),
-        sort
+        sort,
       };
 
-      const result = await this.templateService.getTemplates(filters, options);
+      const result = await this.templateService.getTemplates(filters, {
+        ...options,
+        random: true,
+      });
+
+      const shuffledTemplates = this.shuffleArray(result.templates);
 
       res.json({
         success: true,
-        templates: result.templates,
+        templates: shuffledTemplates,
         pagination: result.pagination,
-        filters: result.filters
+        filters: result.filters,
       });
-
     } catch (error) {
-      logger.error('Error fetching templates:', error);
+      logger.error("Error fetching templates:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch templates'
+        error: "Internal server error",
+        message: "Failed to fetch templates",
       });
     }
   }
@@ -109,57 +151,60 @@ class TemplateController {
         difficulty,
         aspectRatio,
         page = 1,
-        limit = 20
+        limit = 20,
       } = req.query;
 
       if (!searchTerm || searchTerm.trim().length === 0) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'Search term is required'
+          error: "Validation error",
+          message: "Search term is required",
         });
       }
 
       // Parse tags if provided
-      const parsedTags = tags ? tags.split(',').map(tag => tag.trim()) : [];
+      const parsedTags = tags ? tags.split(",").map((tag) => tag.trim()) : [];
 
       const filters = {
         category,
         type,
         tags: parsedTags,
         difficulty,
-        aspectRatio
+        aspectRatio,
       };
 
       const options = {
         page: parseInt(page),
-        limit: parseInt(limit)
+        limit: parseInt(limit),
       };
 
-      const result = await this.templateService.searchTemplates(searchTerm.trim(), filters, options);
+      const result = await this.templateService.searchTemplates(
+        searchTerm.trim(),
+        filters,
+        options
+      );
 
       res.json({
         success: true,
         templates: result.templates,
         pagination: result.pagination,
         searchTerm: result.searchTerm,
-        filters: result.filters
+        filters: result.filters,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
-      logger.error('Error searching templates:', error);
+      logger.error("Error searching templates:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to search templates'
+        error: "Internal server error",
+        message: "Failed to search templates",
       });
     }
   }
@@ -174,15 +219,14 @@ class TemplateController {
 
       res.json({
         success: true,
-        filters: result.filters
+        filters: result.filters,
       });
-
     } catch (error) {
-      logger.error('Error fetching template filter options:', error);
+      logger.error("Error fetching template filter options:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch filter options'
+        error: "Internal server error",
+        message: "Failed to fetch filter options",
       });
     }
   }
@@ -199,31 +243,30 @@ class TemplateController {
 
       res.json({
         success: true,
-        template: result.template
+        template: result.template,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateNotFoundError') {
+      if (error.name === "TemplateNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Template not found',
-          message: 'Template not found or inactive'
+          error: "Template not found",
+          message: "Template not found or inactive",
         });
       }
 
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
-      logger.error('Error fetching template by ID:', error);
+      logger.error("Error fetching template by ID:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch template'
+        error: "Internal server error",
+        message: "Failed to fetch template",
       });
     }
   }
@@ -236,19 +279,20 @@ class TemplateController {
     try {
       const { limit = 10 } = req.query;
 
-      const result = await this.templateService.getFeaturedTemplates(parseInt(limit));
+      const result = await this.templateService.getFeaturedTemplates(
+        parseInt(limit)
+      );
 
       res.json({
         success: true,
-        templates: result.templates
+        templates: result.templates,
       });
-
     } catch (error) {
-      logger.error('Error fetching featured templates:', error);
+      logger.error("Error fetching featured templates:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch featured templates'
+        error: "Internal server error",
+        message: "Failed to fetch featured templates",
       });
     }
   }
@@ -261,19 +305,20 @@ class TemplateController {
     try {
       const { limit = 10 } = req.query;
 
-      const result = await this.templateService.getPopularTemplates(parseInt(limit));
+      const result = await this.templateService.getPopularTemplates(
+        parseInt(limit)
+      );
 
       res.json({
         success: true,
-        templates: result.templates
+        templates: result.templates,
       });
-
     } catch (error) {
-      logger.error('Error fetching popular templates:', error);
+      logger.error("Error fetching popular templates:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch popular templates'
+        error: "Internal server error",
+        message: "Failed to fetch popular templates",
       });
     }
   }
@@ -286,19 +331,65 @@ class TemplateController {
     try {
       const { limit = 10 } = req.query;
 
-      const result = await this.templateService.getRecentTemplates(parseInt(limit));
+      const result = await this.templateService.getRecentTemplates(
+        parseInt(limit)
+      );
 
       res.json({
         success: true,
-        templates: result.templates
+        templates: result.templates,
       });
-
     } catch (error) {
-      logger.error('Error fetching recent templates:', error);
+      logger.error("Error fetching recent templates:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch recent templates'
+        error: "Internal server error",
+        message: "Failed to fetch recent templates",
+      });
+    }
+  }
+
+  /**
+   * Get tags typeahead suggestions
+   * GET /api/templates/tags/typeahead
+   */
+  async getTagsTypeahead(req, res) {
+    try {
+      const { q: query, limit = 8 } = req.query;
+
+      if (!query || query.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: "Query parameter 'q' is required",
+        });
+      }
+
+      const result = await this.templateService.getTagsTypeahead(
+        query.trim(),
+        parseInt(limit)
+      );
+
+      res.json({
+        success: true,
+        tags: result.tags,
+        query: result.query,
+        total: result.total,
+      });
+    } catch (error) {
+      if (error.name === "TemplateValidationError") {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: error.message,
+        });
+      }
+
+      logger.error("Error fetching tags typeahead:", error);
+      res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: "Failed to fetch tags suggestions",
       });
     }
   }
@@ -315,48 +406,50 @@ class TemplateController {
       const createdBy = req.user.id; // Auth0 ID, need to convert to actual user ID
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(createdBy);
       const actualUserId = userResult.user._id;
 
-      const result = await this.templateService.createTemplate(templateData, actualUserId);
+      const result = await this.templateService.createTemplate(
+        templateData,
+        actualUserId
+      );
 
-      logger.info('Template created by admin', {
+      logger.info("Template created by admin", {
         templateId: result.template._id,
         templateName: result.template.name,
-        createdBy: actualUserId
+        createdBy: actualUserId,
       });
 
       res.status(201).json({
         success: true,
         message: result.message,
-        template: result.template
+        template: result.template,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
+          error: "Validation error",
           message: error.message,
-          field: error.field
+          field: error.field,
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'Admin user not found in database'
+          error: "User not found",
+          message: "Admin user not found in database",
         });
       }
 
-      logger.error('Error creating template:', error);
+      logger.error("Error creating template:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to create template'
+        error: "Internal server error",
+        message: "Failed to create template",
       });
     }
   }
@@ -370,43 +463,45 @@ class TemplateController {
       const { templateId } = req.params;
       const updateData = req.body;
 
-      const result = await this.templateService.updateTemplate(templateId, updateData);
+      const result = await this.templateService.updateTemplate(
+        templateId,
+        updateData
+      );
 
-      logger.info('Template updated by admin', {
+      logger.info("Template updated by admin", {
         templateId,
         templateName: result.template.name,
-        updatedBy: req.user.id
+        updatedBy: req.user.id,
       });
 
       res.json({
         success: true,
         message: result.message,
-        template: result.template
+        template: result.template,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateNotFoundError') {
+      if (error.name === "TemplateNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Template not found',
-          message: 'Template not found'
+          error: "Template not found",
+          message: "Template not found",
         });
       }
 
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
+          error: "Validation error",
           message: error.message,
-          field: error.field
+          field: error.field,
         });
       }
 
-      logger.error('Error updating template:', error);
+      logger.error("Error updating template:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to update template'
+        error: "Internal server error",
+        message: "Failed to update template",
       });
     }
   }
@@ -421,38 +516,37 @@ class TemplateController {
 
       const result = await this.templateService.deleteTemplate(templateId);
 
-      logger.info('Template deleted by admin', {
+      logger.info("Template deleted by admin", {
         templateId,
-        deletedBy: req.user.id
+        deletedBy: req.user.id,
       });
 
       res.json({
         success: true,
-        message: result.message
+        message: result.message,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateNotFoundError') {
+      if (error.name === "TemplateNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Template not found',
-          message: 'Template not found'
+          error: "Template not found",
+          message: "Template not found",
         });
       }
 
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
-      logger.error('Error deleting template:', error);
+      logger.error("Error deleting template:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to delete template'
+        error: "Internal server error",
+        message: "Failed to delete template",
       });
     }
   }
@@ -467,10 +561,10 @@ class TemplateController {
 
       const result = await this.templateService.toggleFeatured(templateId);
 
-      logger.info('Template featured status toggled by admin', {
+      logger.info("Template featured status toggled by admin", {
         templateId,
         newStatus: result.newFeaturedStatus,
-        toggledBy: req.user.id
+        toggledBy: req.user.id,
       });
 
       res.json({
@@ -478,31 +572,30 @@ class TemplateController {
         message: result.message,
         template: result.template,
         oldFeaturedStatus: result.oldFeaturedStatus,
-        newFeaturedStatus: result.newFeaturedStatus
+        newFeaturedStatus: result.newFeaturedStatus,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateNotFoundError') {
+      if (error.name === "TemplateNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Template not found',
-          message: 'Template not found'
+          error: "Template not found",
+          message: "Template not found",
         });
       }
 
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
-      logger.error('Error toggling template featured status:', error);
+      logger.error("Error toggling template featured status:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to toggle featured status'
+        error: "Internal server error",
+        message: "Failed to toggle featured status",
       });
     }
   }
@@ -517,9 +610,9 @@ class TemplateController {
 
       const result = await this.templateService.archiveTemplate(templateId);
 
-      logger.info('Template archived by admin', {
+      logger.info("Template archived by admin", {
         templateId,
-        archivedBy: req.user.id
+        archivedBy: req.user.id,
       });
 
       res.json({
@@ -527,31 +620,30 @@ class TemplateController {
         message: result.message,
         template: result.template,
         oldStatus: result.oldStatus,
-        newStatus: result.newStatus
+        newStatus: result.newStatus,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateNotFoundError') {
+      if (error.name === "TemplateNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Template not found',
-          message: 'Template not found'
+          error: "Template not found",
+          message: "Template not found",
         });
       }
 
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
-      logger.error('Error archiving template:', error);
+      logger.error("Error archiving template:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to archive template'
+        error: "Internal server error",
+        message: "Failed to archive template",
       });
     }
   }
@@ -566,9 +658,9 @@ class TemplateController {
 
       const result = await this.templateService.activateTemplate(templateId);
 
-      logger.info('Template activated by admin', {
+      logger.info("Template activated by admin", {
         templateId,
-        activatedBy: req.user.id
+        activatedBy: req.user.id,
       });
 
       res.json({
@@ -576,31 +668,30 @@ class TemplateController {
         message: result.message,
         template: result.template,
         oldStatus: result.oldStatus,
-        newStatus: result.newStatus
+        newStatus: result.newStatus,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateNotFoundError') {
+      if (error.name === "TemplateNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'Template not found',
-          message: 'Template not found'
+          error: "Template not found",
+          message: "Template not found",
         });
       }
 
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
-      logger.error('Error activating template:', error);
+      logger.error("Error activating template:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to activate template'
+        error: "Internal server error",
+        message: "Failed to activate template",
       });
     }
   }
@@ -617,54 +708,56 @@ class TemplateController {
       if (!Array.isArray(templatesData) || templatesData.length === 0) {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: 'Templates array is required and must not be empty'
+          error: "Validation error",
+          message: "Templates array is required and must not be empty",
         });
       }
 
       // Get user by Auth0 ID first
-      const UserService = require('../services/userService');
+      const UserService = require("../services/userService");
       const userService = new UserService();
       const userResult = await userService.getUserByAuth0Id(createdBy);
       const actualUserId = userResult.user._id;
 
-      const result = await this.templateService.batchUploadTemplates(templatesData, actualUserId);
+      const result = await this.templateService.batchUploadTemplates(
+        templatesData,
+        actualUserId
+      );
 
-      logger.info('Batch template upload completed by admin', {
+      logger.info("Batch template upload completed by admin", {
         total: result.results.total,
         successful: result.results.successful.length,
         failed: result.results.failed.length,
-        uploadedBy: actualUserId
+        uploadedBy: actualUserId,
       });
 
       res.json({
         success: true,
         message: result.message,
-        results: result.results
+        results: result.results,
       });
-
     } catch (error) {
-      if (error.name === 'TemplateValidationError') {
+      if (error.name === "TemplateValidationError") {
         return res.status(400).json({
           success: false,
-          error: 'Validation error',
-          message: error.message
+          error: "Validation error",
+          message: error.message,
         });
       }
 
-      if (error.name === 'UserNotFoundError') {
+      if (error.name === "UserNotFoundError") {
         return res.status(404).json({
           success: false,
-          error: 'User not found',
-          message: 'Admin user not found in database'
+          error: "User not found",
+          message: "Admin user not found in database",
         });
       }
 
-      logger.error('Error in batch template upload:', error);
+      logger.error("Error in batch template upload:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to batch upload templates'
+        error: "Internal server error",
+        message: "Failed to batch upload templates",
       });
     }
   }
@@ -679,15 +772,14 @@ class TemplateController {
 
       res.json({
         success: true,
-        stats: result.stats
+        stats: result.stats,
       });
-
     } catch (error) {
-      logger.error('Error fetching template statistics:', error);
+      logger.error("Error fetching template statistics:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch template statistics'
+        error: "Internal server error",
+        message: "Failed to fetch template statistics",
       });
     }
   }
@@ -709,18 +801,19 @@ class TemplateController {
         status, // Admin can see all statuses
         page = 1,
         limit = 20,
-        sortBy = 'createdAt',
-        sortOrder = 'desc'
+        sortBy = "createdAt",
+        sortOrder = "desc",
       } = req.query;
 
       // Parse tags if provided
-      const parsedTags = tags ? tags.split(',').map(tag => tag.trim()) : [];
+      const parsedTags = tags ? tags.split(",").map((tag) => tag.trim()) : [];
 
       // Parse boolean values
-      const parsedIsFeatured = isFeatured === 'true' ? true : isFeatured === 'false' ? false : null;
+      const parsedIsFeatured =
+        isFeatured === "true" ? true : isFeatured === "false" ? false : null;
 
       // Build sort object
-      const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+      const sort = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
 
       const filters = {
         category,
@@ -730,30 +823,32 @@ class TemplateController {
         aspectRatio,
         isFeatured: parsedIsFeatured,
         search,
-        status
+        status,
       };
 
       const options = {
         page: parseInt(page),
         limit: parseInt(limit),
-        sort
+        sort,
       };
 
-      const result = await this.templateService.getAdminTemplates(filters, options);
+      const result = await this.templateService.getAdminTemplates(
+        filters,
+        options
+      );
 
       res.json({
         success: true,
         templates: result.templates,
         pagination: result.pagination,
-        filters: result.filters
+        filters: result.filters,
       });
-
     } catch (error) {
-      logger.error('Error fetching admin templates:', error);
+      logger.error("Error fetching admin templates:", error);
       res.status(500).json({
         success: false,
-        error: 'Internal server error',
-        message: 'Failed to fetch templates'
+        error: "Internal server error",
+        message: "Failed to fetch templates",
       });
     }
   }

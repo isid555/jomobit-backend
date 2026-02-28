@@ -303,6 +303,68 @@ router.get('/recent', templateController.getRecentTemplates);
 
 /**
  * @swagger
+ * /templates/tags/typeahead:
+ *   get:
+ *     summary: Get tags typeahead suggestions
+ *     description: |
+ *       Returns top matching tags based on user query, sorted by usage frequency.
+ *       Useful for implementing tag autocomplete/typeahead functionality in the UI.
+ *     tags: [Templates]
+ *     parameters:
+ *       - name: q
+ *         in: query
+ *         required: true
+ *         description: Search query for tags (prefix matching)
+ *         schema:
+ *           type: string
+ *           minLength: 1
+ *           example: "diw"
+ *       - name: limit
+ *         in: query
+ *         description: Maximum number of tag suggestions to return
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 20
+ *           default: 8
+ *           example: 8
+ *     responses:
+ *       200:
+ *         description: Tags suggestions retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 tags:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       tag:
+ *                         type: string
+ *                         example: "diwali"
+ *                       count:
+ *                         type: integer
+ *                         example: 150
+ *                 query:
+ *                   type: string
+ *                   example: "diw"
+ *                 total:
+ *                   type: integer
+ *                   example: 3
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
+router.get('/tags/typeahead', templateController.getTagsTypeahead);
+
+/**
+ * @swagger
  * /templates/{templateId}:
  *   get:
  *     summary: Get template by ID

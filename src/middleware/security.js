@@ -150,86 +150,678 @@ const createSlowDown = (options = {}) => {
 /**
  * Webhook signature validation middleware
  */
+
+// const validateWebhookSignature = (secretKey, headerName = 'x-signature-256') => {
+//   return (req, res, next) => {
+//     try {
+//       const signature = req.get(headerName);
+      
+//       if (!signature) {
+//         logger.warn('Missing webhook signature', {
+//           ip: req.ip,
+//           userAgent: req.get('User-Agent'),
+//           url: req.url,
+//           method: req.method,
+//           headers: Object.keys(req.headers),
+//           timestamp: new Date().toISOString()
+//         });
+        
+//         return res.status(401).json({
+//           error: 'Missing webhook signature',
+//           code: 'MISSING_SIGNATURE'
+//         });
+//       }
+
+//       // Get raw body for signature verification
+//       // const rawBody = req.rawBody || JSON.stringify(req.body);
+
+//       // rawCandidate: Buffer | string | object
+//       const rawCandidate = req.body ?? req.rawBody ?? '';
+
+//       // Normalize to buffer of bytes Razorpay signed:
+//       let rawBuffer;
+//       if (Buffer.isBuffer(rawCandidate)) {
+//         rawBuffer = rawCandidate;
+//       } else if (typeof rawCandidate === 'string') {
+//         rawBuffer = Buffer.from(rawCandidate, 'utf8');
+//       } else {
+//         // If it's an object, stringify (last resort — but this should not be used for razorpay)
+//         rawBuffer = Buffer.from(JSON.stringify(rawCandidate), 'utf8');
+//       }
+
+      
+//       // Calculate expected signature
+//       const expectedHex = crypto
+//         .createHmac('sha256', secretKey)
+//         .update(rawBuffer)
+//         .digest('hex');
+
+      
+//       // const expected =
+//       //   headerName === 'x-razorpay-signature'
+//       //     ? expectedSignature
+//       //     : `sha256=${expectedSignature}`;
+      
+//       // const expectedSignatureWithPrefix = `sha256=${expectedSignature}`;
+
+//       let expected;
+//       if (headerName === 'x-razorpay-signature') {
+//         // signature header should be plain hex
+//         // Received signature may be hex string; if header included "sha256=" remove it
+//         const receivedHex = signature.startsWith('sha256=') ? signature.slice(7) : signature;
+
+//         // Ensure lengths match
+//         if (receivedHex.length !== expectedHex.length) {
+//           logger.warn('Invalid signature length', { expectedLen: expectedHex.length, receivedLen: receivedHex.length });
+//           return res.status(401).json({ error: 'Invalid webhook signature', code: 'INVALID_SIGNATURE' });
+//         }
+
+//         // timing-safe compare buffers of hex
+//         const isValid = crypto.timingSafeEqual(Buffer.from(receivedHex, 'hex'), Buffer.from(expectedHex, 'hex'));
+//         if (!isValid) {
+//           logger.warn('Invalid webhook signature compare failed');
+//           return res.status(401).json({ error: 'Invalid webhook signature', code: 'INVALID_SIGNATURE' });
+//         }
+        
+        
+
+//       }
+
+//       else {
+//         // other providers: header may be formatted like 'sha256=...'
+//         const expectedWithPrefix = `sha256=${expectedHex}`;
+//         if (signature.length !== expectedWithPrefix.length) {
+//           logger.warn('Invalid signature length', { expectedLen: expectedWithPrefix.length, receivedLen: signature.length });
+//           return res.status(401).json({ error: 'Invalid webhook signature', code: 'INVALID_SIGNATURE' });
+//         }
+//         const isValid = crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expectedWithPrefix, 'utf8'));
+//         if (!isValid) {
+//           logger.warn('Invalid webhook signature compare failed');
+//           return res.status(401).json({ error: 'Invalid webhook signature', code: 'INVALID_SIGNATURE' });
+//         }
+//       }
+
+
+//       // Ensure equal length before comparing
+//       // const expectedBuf = Buffer.from(expected);
+//       // const receivedBuf = Buffer.from(signature);
+      
+//       // Compare signatures using timing-safe comparison
+//       // const isValid = crypto.timingSafeEqual(
+//       //   expectedBuf,
+//       //  receivedBuf
+//       // );
+
+//       // logger.info("Signature Recieved: ", expectedBuf);
+//       // logger.info("Expected Signature: ", receivedBuf);
+
+//       // if (expectedBuf.length !== receivedBuf.length || !isValid) {
+//       //   logger.warn('Invalid webhook signature', {
+//       //     ip: req.ip,
+//       //     userAgent: req.get('User-Agent'),
+//       //     url: req.url,
+//       //     method: req.method,
+//       //     providedSignature: signature.substring(0, 20) + '...',
+//       //     timestamp: new Date().toISOString()
+//       //   });
+        
+//       //   return res.status(401).json({
+//       //     error: 'Invalid webhook signature',
+//       //     code: 'INVALID_SIGNATURE'
+//       //   });
+//       // }
+
+//       logger.info('Webhook signature validated successfully', {
+//         ip: req.ip,
+//         url: req.url,
+//         method: req.method,
+//         timestamp: new Date().toISOString()
+//       });
+
+//       next();
+//     } catch (error) {
+//       logger.error('Webhook signature validation error', {
+//         error: error.message,
+//         stack: error.stack,
+//         ip: req.ip,
+//         url: req.url,
+//         method: req.method,
+//         timestamp: new Date().toISOString()
+//       });
+      
+//       res.status(500).json({
+//         error: 'Signature validation failed',
+//         code: 'SIGNATURE_VALIDATION_ERROR'
+//       });
+//     }
+//   };
+// };
+
+// ============================================
+// 1. FIXED validateWebhookSignature (validation.js)
+// ============================================
+// const validateWebhookSignature = (secretKey, headerName = 'x-signature-256') => {
+//   return (req, res, next) => {
+//     const debugInfo = {
+//       url: req.url,
+//       method: req.method,
+//       headerName,
+//       timestamp: new Date().toISOString()
+//     };
+
+//     try {
+//       const signature = req.get(headerName);
+      
+//       logger.info('🔍 [WEBHOOK-VALIDATION] Starting validation', {
+//         ...debugInfo,
+//         hasSignature: !!signature,
+//         signaturePreview: signature ? `${signature.substring(0, 20)}...` : 'MISSING',
+//         bodyType: Buffer.isBuffer(req.body) ? 'Buffer' : typeof req.body,
+//         bodyLength: Buffer.isBuffer(req.body) ? req.body.length : JSON.stringify(req.body).length
+//       });
+      
+//       if (!signature) {
+//         logger.warn('❌ [WEBHOOK-VALIDATION] Missing signature', debugInfo);
+//         return res.status(401).json({
+//           error: 'Missing webhook signature',
+//           code: 'MISSING_SIGNATURE'
+//         });
+//       }
+
+//       // Get raw body for signature verification
+//       let rawBuffer;
+//       if (Buffer.isBuffer(req.body)) {
+//         rawBuffer = req.body;
+//         logger.info('📦 [WEBHOOK-VALIDATION] Using Buffer body', {
+//           ...debugInfo,
+//           bufferLength: rawBuffer.length
+//         });
+//       } else if (req.rawBody && typeof req.rawBody === 'string') {
+//         rawBuffer = Buffer.from(req.rawBody, 'utf8');
+//         logger.info('📦 [WEBHOOK-VALIDATION] Using rawBody string', {
+//           ...debugInfo,
+//           rawBodyLength: req.rawBody.length
+//         });
+//       } else if (typeof req.body === 'string') {
+//         rawBuffer = Buffer.from(req.body, 'utf8');
+//         logger.info('📦 [WEBHOOK-VALIDATION] Using body string', {
+//           ...debugInfo,
+//           bodyLength: req.body.length
+//         });
+//       } else if (req.body && typeof req.body === 'object') {
+//         // Last resort - stringify object
+//         rawBuffer = Buffer.from(JSON.stringify(req.body), 'utf8');
+//         logger.warn('⚠️ [WEBHOOK-VALIDATION] Had to stringify object body', {
+//           ...debugInfo,
+//           bodyKeys: Object.keys(req.body)
+//         });
+//       } else {
+//         logger.error('❌ [WEBHOOK-VALIDATION] No valid body found', {
+//           ...debugInfo,
+//           bodyType: typeof req.body,
+//           hasRawBody: !!req.rawBody
+//         });
+//         return res.status(400).json({
+//           error: 'Invalid request body',
+//           code: 'INVALID_BODY'
+//         });
+//       }
+
+//       // Calculate expected signature
+//       const expectedHex = crypto
+//         .createHmac('sha256', secretKey)
+//         .update(rawBuffer)
+//         .digest('hex');
+
+//       logger.info('🔐 [WEBHOOK-VALIDATION] Signature calculation', {
+//         ...debugInfo,
+//         expectedHexLength: expectedHex.length,
+//         expectedHexPreview: `${expectedHex.substring(0, 20)}...${expectedHex.substring(expectedHex.length - 20)}`,
+//         expectedHexFull: expectedHex, // Full hex for debugging
+//         rawBufferLength: rawBuffer.length,
+//         rawBufferPreview: rawBuffer.toString('utf8').substring(0, 100)
+//       });
+
+//       // Handle different signature formats
+//       if (headerName === 'x-razorpay-signature') {
+//         // Razorpay: plain hex string
+//         const receivedHex = signature.startsWith('sha256=') 
+//           ? signature.slice(7) 
+//           : signature;
+
+//         logger.info('🎯 [WEBHOOK-VALIDATION] Razorpay signature comparison', {
+//           ...debugInfo,
+//           receivedHexLength: receivedHex.length,
+//           receivedHexPreview: `${receivedHex.substring(0, 20)}...${receivedHex.substring(receivedHex.length - 20)}`,
+//           receivedHexFull: receivedHex, // Full hex for debugging
+//           expectedHexLength: expectedHex.length,
+//           lengthsMatch: receivedHex.length === expectedHex.length,
+//           hexesMatch: receivedHex === expectedHex // Direct comparison for debugging
+//         });
+
+//         if (receivedHex.length !== expectedHex.length) {
+//           logger.warn('❌ [WEBHOOK-VALIDATION] Length mismatch', {
+//             ...debugInfo,
+//             expectedLength: expectedHex.length,
+//             receivedLength: receivedHex.length,
+//             difference: Math.abs(expectedHex.length - receivedHex.length)
+//           });
+//           return res.status(401).json({
+//             error: 'Invalid webhook signature',
+//             code: 'INVALID_SIGNATURE_LENGTH'
+//           });
+//         }
+
+//         try {
+//           const isValid = crypto.timingSafeEqual(
+//             Buffer.from(receivedHex, 'hex'),
+//             Buffer.from(expectedHex, 'hex')
+//           );
+
+//           if (!isValid) {
+//             logger.warn('❌ [WEBHOOK-VALIDATION] Signature mismatch', {
+//               ...debugInfo,
+//               expectedFirst20: expectedHex.substring(0, 20),
+//               receivedFirst20: receivedHex.substring(0, 20),
+//               expectedLast20: expectedHex.substring(expectedHex.length - 20),
+//               receivedLast20: receivedHex.substring(receivedHex.length - 20)
+//             });
+//             return res.status(401).json({
+//               error: 'Invalid webhook signature',
+//               code: 'INVALID_SIGNATURE'
+//             });
+//           }
+
+//           logger.info('✅ [WEBHOOK-VALIDATION] Signature valid!', debugInfo);
+          
+//           // Store raw buffer for handler to use without re-verification
+//           req.rawBodyBuffer = rawBuffer;
+//           req.signatureVerified = true;
+
+//           next();
+//         } catch (compareError) {
+//           logger.error('❌ [WEBHOOK-VALIDATION] Comparison error', {
+//             ...debugInfo,
+//             error: compareError.message,
+//             stack: compareError.stack
+//           });
+//           return res.status(500).json({
+//             error: 'Signature comparison failed',
+//             code: 'COMPARISON_ERROR'
+//           });
+//         }
+//       } else {
+//         // Other providers: sha256=hex format
+//         const expectedWithPrefix = `sha256=${expectedHex}`;
+        
+//         logger.info('🎯 [WEBHOOK-VALIDATION] Standard signature comparison', {
+//           ...debugInfo,
+//           receivedLength: signature.length,
+//           expectedLength: expectedWithPrefix.length,
+//           lengthsMatch: signature.length === expectedWithPrefix.length
+//         });
+
+//         if (signature.length !== expectedWithPrefix.length) {
+//           logger.warn('❌ [WEBHOOK-VALIDATION] Length mismatch', {
+//             ...debugInfo,
+//             expectedLength: expectedWithPrefix.length,
+//             receivedLength: signature.length
+//           });
+//           return res.status(401).json({
+//             error: 'Invalid webhook signature',
+//             code: 'INVALID_SIGNATURE_LENGTH'
+//           });
+//         }
+
+//         const isValid = crypto.timingSafeEqual(
+//           Buffer.from(signature, 'utf8'),
+//           Buffer.from(expectedWithPrefix, 'utf8')
+//         );
+
+//         if (!isValid) {
+//           logger.warn('❌ [WEBHOOK-VALIDATION] Signature mismatch', debugInfo);
+//           return res.status(401).json({
+//             error: 'Invalid webhook signature',
+//             code: 'INVALID_SIGNATURE'
+//           });
+//         }
+
+//         logger.info('✅ [WEBHOOK-VALIDATION] Signature valid!', debugInfo);
+        
+//         // Store raw buffer for handler
+//         req.rawBodyBuffer = rawBuffer;
+//         req.signatureVerified = true;
+
+//         next();
+//       }
+
+//     } catch (error) {
+//       logger.error('❌ [WEBHOOK-VALIDATION] Validation error', {
+//         ...debugInfo,
+//         error: error.message,
+//         stack: error.stack
+//       });
+      
+//       res.status(500).json({
+//         error: 'Signature validation failed',
+//         code: 'SIGNATURE_VALIDATION_ERROR',
+//         details: error.message
+//       });
+//     }
+//   };
+// };
+
+/**
+ * Enhanced webhook signature validation middleware with comprehensive debugging
+ */
 const validateWebhookSignature = (secretKey, headerName = 'x-signature-256') => {
   return (req, res, next) => {
+    const debugInfo = {
+      url: req.url,
+      path: req.path,
+      method: req.method,
+      headerName,
+      timestamp: new Date().toISOString(),
+      correlationId: req.correlationId
+    };
+
     try {
+      // Step 1: Check if secret key is configured
+      if (!secretKey) {
+        logger.error('❌ [WEBHOOK-VALIDATION] Secret key not configured', {
+          ...debugInfo,
+          headerName,
+          environmentVariable: headerName === 'x-razorpay-signature' ? 'RAZORPAY_WEBHOOK_SECRET' : 'SECRET_KEY'
+        });
+        return res.status(500).json({
+          error: 'Webhook secret not configured',
+          code: 'SECRET_NOT_CONFIGURED'
+        });
+      }
+
+      // Step 2: Get signature from header
       const signature = req.get(headerName);
       
+      logger.info('🔍 [WEBHOOK-VALIDATION] Starting validation', {
+        ...debugInfo,
+        hasSignature: !!signature,
+        signaturePreview: signature ? `${signature.substring(0, 20)}...` : 'MISSING',
+        signatureLength: signature ? signature.length : 0,
+        bodyType: Buffer.isBuffer(req.body) ? 'Buffer' : typeof req.body,
+        bodyLength: Buffer.isBuffer(req.body) ? req.body.length : 
+                    (typeof req.body === 'string' ? req.body.length : 
+                    (req.body ? JSON.stringify(req.body).length : 0)),
+        hasRawBody: !!req.rawBody,
+        rawBodyType: typeof req.rawBody
+      });
+      
       if (!signature) {
-        logger.warn('Missing webhook signature', {
-          ip: req.ip,
-          userAgent: req.get('User-Agent'),
-          url: req.url,
-          method: req.method,
-          headers: Object.keys(req.headers),
-          timestamp: new Date().toISOString()
+        logger.warn('❌ [WEBHOOK-VALIDATION] Missing signature', {
+          ...debugInfo,
+          availableHeaders: Object.keys(req.headers),
+          expectedHeader: headerName
         });
-        
         return res.status(401).json({
           error: 'Missing webhook signature',
           code: 'MISSING_SIGNATURE'
         });
       }
 
-      // Get raw body for signature verification
-      const rawBody = req.rawBody || JSON.stringify(req.body);
+      // Step 3: Get raw body as Buffer
+      let rawBuffer;
       
-      // Calculate expected signature
-      const expectedSignature = crypto
-        .createHmac('sha256', secretKey)
-        .update(rawBody, 'utf8')
-        .digest('hex');
-      
-      const expectedSignatureWithPrefix = `sha256=${expectedSignature}`;
-      
-      // Compare signatures using timing-safe comparison
-      const isValid = crypto.timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignatureWithPrefix)
-      );
-
-      if (!isValid) {
-        logger.warn('Invalid webhook signature', {
-          ip: req.ip,
-          userAgent: req.get('User-Agent'),
-          url: req.url,
-          method: req.method,
-          providedSignature: signature.substring(0, 20) + '...',
-          timestamp: new Date().toISOString()
+      if (Buffer.isBuffer(req.body)) {
+        // ✅ Best case: express.raw() captured it
+        rawBuffer = req.body;
+        logger.info('📦 [WEBHOOK-VALIDATION] Using Buffer body (BEST CASE)', {
+          ...debugInfo,
+          bufferLength: rawBuffer.length,
+          first100Bytes: rawBuffer.toString('utf8', 0, 100)
         });
-        
-        return res.status(401).json({
-          error: 'Invalid webhook signature',
-          code: 'INVALID_SIGNATURE'
+      } else if (req.rawBody && Buffer.isBuffer(req.rawBody)) {
+        // ✅ Good: Custom capture of raw body
+        rawBuffer = req.rawBody;
+        logger.info('📦 [WEBHOOK-VALIDATION] Using rawBody Buffer', {
+          ...debugInfo,
+          bufferLength: rawBuffer.length
+        });
+      } else if (req.rawBody && typeof req.rawBody === 'string') {
+        // ⚠️ Acceptable: String raw body
+        rawBuffer = Buffer.from(req.rawBody, 'utf8');
+        logger.warn('📦 [WEBHOOK-VALIDATION] Using rawBody string (converted to Buffer)', {
+          ...debugInfo,
+          stringLength: req.rawBody.length,
+          bufferLength: rawBuffer.length
+        });
+      } else if (typeof req.body === 'string') {
+        // ⚠️ Acceptable: String body
+        rawBuffer = Buffer.from(req.body, 'utf8');
+        logger.warn('📦 [WEBHOOK-VALIDATION] Using body string (converted to Buffer)', {
+          ...debugInfo,
+          stringLength: req.body.length,
+          bufferLength: rawBuffer.length
+        });
+      } else if (req.body && typeof req.body === 'object') {
+        // ❌ WORST CASE: Had to stringify object
+        // This is unreliable as key order and formatting may differ
+        const jsonString = JSON.stringify(req.body);
+        rawBuffer = Buffer.from(jsonString, 'utf8');
+        logger.error('⚠️ [WEBHOOK-VALIDATION] Had to stringify object body (UNRELIABLE!)', {
+          ...debugInfo,
+          bodyKeys: Object.keys(req.body),
+          jsonLength: jsonString.length,
+          bufferLength: rawBuffer.length,
+          warning: 'This may cause signature mismatches due to key ordering'
+        });
+      } else {
+        // ❌ No valid body found
+        logger.error('❌ [WEBHOOK-VALIDATION] No valid body found', {
+          ...debugInfo,
+          bodyType: typeof req.body,
+          hasBody: !!req.body,
+          hasRawBody: !!req.rawBody,
+          bodyValue: req.body
+        });
+        return res.status(400).json({
+          error: 'Invalid request body',
+          code: 'INVALID_BODY'
         });
       }
 
-      logger.info('Webhook signature validated successfully', {
-        ip: req.ip,
-        url: req.url,
-        method: req.method,
-        timestamp: new Date().toISOString()
+      // Step 4: Calculate expected signature
+      const expectedHex = crypto
+        .createHmac('sha256', secretKey)
+        .update(rawBuffer)
+        .digest('hex');
+
+      logger.info('🔐 [WEBHOOK-VALIDATION] Signature calculation complete', {
+        ...debugInfo,
+        expectedHexLength: expectedHex.length,
+        expectedHexPreview: `${expectedHex.substring(0, 20)}...${expectedHex.substring(expectedHex.length - 20)}`,
+        expectedHexFull: expectedHex,
+        rawBufferLength: rawBuffer.length,
+        rawBufferPreview: rawBuffer.toString('utf8').substring(0, 150),
+        secretKeyLength: secretKey.length,
+        secretKeyPreview: `${secretKey.substring(0, 5)}...${secretKey.substring(secretKey.length - 5)}`
+      });
+
+      // Step 5: Compare signatures based on provider
+      if (headerName === 'x-razorpay-signature') {
+        // Razorpay sends plain hex string (no prefix)
+        const receivedHex = signature.startsWith('sha256=') 
+          ? signature.slice(7) 
+          : signature;
+
+        logger.info('🎯 [WEBHOOK-VALIDATION] Razorpay signature comparison', {
+          ...debugInfo,
+          receivedHexLength: receivedHex.length,
+          receivedHexPreview: `${receivedHex.substring(0, 20)}...${receivedHex.substring(receivedHex.length - 20)}`,
+          receivedHexFull: receivedHex,
+          expectedHexLength: expectedHex.length,
+          lengthsMatch: receivedHex.length === expectedHex.length,
+          hexesMatch: receivedHex === expectedHex,
+          caseSensitive: true
+        });
+
+        if (receivedHex.length !== expectedHex.length) {
+          logger.warn('❌ [WEBHOOK-VALIDATION] Length mismatch', {
+            ...debugInfo,
+            expectedLength: expectedHex.length,
+            receivedLength: receivedHex.length,
+            difference: Math.abs(expectedHex.length - receivedHex.length),
+            expectedHex: expectedHex,
+            receivedHex: receivedHex
+          });
+          return res.status(401).json({
+            error: 'Invalid webhook signature',
+            code: 'INVALID_SIGNATURE_LENGTH'
+          });
+        }
+
+        try {
+          const isValid = crypto.timingSafeEqual(
+            Buffer.from(receivedHex, 'hex'),
+            Buffer.from(expectedHex, 'hex')
+          );
+
+          if (!isValid) {
+            logger.warn('❌ [WEBHOOK-VALIDATION] Signature mismatch', {
+              ...debugInfo,
+              expected: expectedHex,
+              received: receivedHex,
+              expectedFirst20: expectedHex.substring(0, 20),
+              receivedFirst20: receivedHex.substring(0, 20),
+              expectedLast20: expectedHex.substring(expectedHex.length - 20),
+              receivedLast20: receivedHex.substring(receivedHex.length - 20),
+              mismatchPositions: findMismatchPositions(expectedHex, receivedHex)
+            });
+            return res.status(401).json({
+              error: 'Invalid webhook signature',
+              code: 'INVALID_SIGNATURE'
+            });
+          }
+
+          logger.info('✅ [WEBHOOK-VALIDATION] Signature valid!', {
+            ...debugInfo,
+            provider: 'Razorpay',
+            signatureLength: receivedHex.length
+          });
+
+        } catch (compareError) {
+          logger.error('❌ [WEBHOOK-VALIDATION] Comparison error', {
+            ...debugInfo,
+            error: compareError.message,
+            stack: compareError.stack,
+            expectedHex,
+            receivedHex
+          });
+          return res.status(500).json({
+            error: 'Signature comparison failed',
+            code: 'COMPARISON_ERROR'
+          });
+        }
+      } else {
+        // Other providers: expect "sha256=..." format
+        const expectedWithPrefix = `sha256=${expectedHex}`;
+        
+        logger.info('🎯 [WEBHOOK-VALIDATION] Standard signature comparison', {
+          ...debugInfo,
+          provider: headerName,
+          receivedLength: signature.length,
+          receivedPreview: signature.substring(0, 30) + '...',
+          expectedLength: expectedWithPrefix.length,
+          expectedPreview: expectedWithPrefix.substring(0, 30) + '...',
+          lengthsMatch: signature.length === expectedWithPrefix.length
+        });
+
+        if (signature.length !== expectedWithPrefix.length) {
+          logger.warn('❌ [WEBHOOK-VALIDATION] Length mismatch', {
+            ...debugInfo,
+            expectedLength: expectedWithPrefix.length,
+            receivedLength: signature.length,
+            difference: Math.abs(expectedWithPrefix.length - signature.length)
+          });
+          return res.status(401).json({
+            error: 'Invalid webhook signature',
+            code: 'INVALID_SIGNATURE_LENGTH'
+          });
+        }
+
+        const isValid = crypto.timingSafeEqual(
+          Buffer.from(signature, 'utf8'),
+          Buffer.from(expectedWithPrefix, 'utf8')
+        );
+
+        if (!isValid) {
+          logger.warn('❌ [WEBHOOK-VALIDATION] Signature mismatch', {
+            ...debugInfo,
+            expected: expectedWithPrefix,
+            received: signature
+          });
+          return res.status(401).json({
+            error: 'Invalid webhook signature',
+            code: 'INVALID_SIGNATURE'
+          });
+        }
+
+        logger.info('✅ [WEBHOOK-VALIDATION] Signature valid!', {
+          ...debugInfo,
+          provider: headerName
+        });
+      }
+
+      // Step 6: Store raw buffer and verification flag for handler
+      req.rawBodyBuffer = rawBuffer;
+      req.signatureVerified = true;
+
+      logger.info('✅ [WEBHOOK-VALIDATION] Validation complete, proceeding to handler', {
+        ...debugInfo,
+        rawBodyBufferLength: rawBuffer.length,
+        signatureVerified: true
       });
 
       next();
+
     } catch (error) {
-      logger.error('Webhook signature validation error', {
+      logger.error('❌ [WEBHOOK-VALIDATION] Validation error', {
+        ...debugInfo,
         error: error.message,
         stack: error.stack,
-        ip: req.ip,
-        url: req.url,
-        method: req.method,
-        timestamp: new Date().toISOString()
+        errorName: error.name,
+        errorCode: error.code
       });
       
       res.status(500).json({
         error: 'Signature validation failed',
-        code: 'SIGNATURE_VALIDATION_ERROR'
+        code: 'SIGNATURE_VALIDATION_ERROR',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   };
 };
 
+/**
+ * Helper function to find mismatch positions between two hex strings
+ */
+function findMismatchPositions(expected, received) {
+  if (expected.length !== received.length) {
+    return { error: 'Different lengths', expectedLength: expected.length, receivedLength: received.length };
+  }
+
+  const mismatches = [];
+  for (let i = 0; i < expected.length && mismatches.length < 10; i++) {
+    if (expected[i] !== received[i]) {
+      mismatches.push({
+        position: i,
+        expected: expected[i],
+        received: received[i],
+        context: `...${expected.substring(Math.max(0, i - 5), Math.min(expected.length, i + 6))}...`
+      });
+    }
+  }
+
+  return mismatches.length > 0 ? mismatches : 'No mismatches found';
+}
 /**
  * Specific webhook signature validators for different services
  */
@@ -426,6 +1018,19 @@ const auditLog = (operation) => {
  * Sanitize data for audit logging
  */
 function sanitizeForAudit(data) {
+
+
+  // ✅ Handle Buffers explicitly (prevents numeric-index dumps)
+  if (Buffer.isBuffer(data)) {
+    try {
+      const str = data.toString('utf8');
+      return JSON.parse(str);
+    } catch {
+      return { _raw: data.toString('base64') }; // safe, readable fallback
+    }
+  }
+
+
   if (!data || typeof data !== 'object') {
     return data;
   }
@@ -436,7 +1041,7 @@ function sanitizeForAudit(data) {
     'access_token', 'refresh_token', 'webhook_secret'
   ];
   
-  const sanitized = JSON.parse(JSON.stringify(data));
+  // const sanitized = JSON.parse(JSON.stringify(data));
   
   function recursiveSanitize(obj) {
     if (Array.isArray(obj)) {
@@ -458,7 +1063,12 @@ function sanitizeForAudit(data) {
     return obj;
   }
   
-  return recursiveSanitize(sanitized);
+  try {
+    return recursiveSanitize(data);
+  } catch (err) {
+    console.error('sanitizeForAudit error:', err);
+    return '[UNSERIALIZABLE_DATA]';
+  }
 }
 
 /**

@@ -7,7 +7,7 @@ const { auth } = require('express-oauth2-jwt-bearer');
 class Auth0Config {
   constructor() {
     this.domain = process.env.AUTH0_DOMAIN;
-    this.audience = process.env.AUTH0_AUDIENCE;
+    this.audience = process.env.AUTH0_AUDIENCE?.trim(); // Remove any whitespace/newlines
     this.clientId = process.env.AUTH0_CLIENT_ID;
     this.clientSecret = process.env.AUTH0_CLIENT_SECRET;
     

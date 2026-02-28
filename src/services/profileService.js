@@ -55,10 +55,10 @@ class ProfileValidationError extends Error {
 class ProfileService {
   constructor() {
     // Editable fields that users can modify after profile creation
-    this.EDITABLE_FIELDS = ['tagline', 'products', 'colorPalette', 'typography'];
-    
+    this.EDITABLE_FIELDS = ['tagline', 'description', 'products', 'colorPalette', 'typography', 'address'];
+
     // Required fields for profile creation
-    this.REQUIRED_FIELDS = ['name', 'tagline', 'description'];
+    this.REQUIRED_FIELDS = ['name', 'niche', 'description'];
   }
 
   /**
@@ -70,7 +70,7 @@ class ProfileService {
     try {
       // Get user's active subscription
       const subscription = await Subscription.getUserActiveSubscription(userId);
-      
+
       if (subscription && subscription.planId) {
         return {
           plan: subscription.planId,
@@ -86,7 +86,7 @@ class ProfileService {
         plan: freePlan,
         planName: freePlan?.name || 'Free',
         planId: freePlan?.planId || 'free',
-        profileLimit: 3 || freePlan?.features.businessProfiles.limit || BusinessProfile.PLAN_LIMITS.free
+        profileLimit: freePlan?.features.businessProfiles.limit || BusinessProfile.PLAN_LIMITS.free
       };
 
     } catch (error) {
@@ -94,7 +94,7 @@ class ProfileService {
         userId,
         error: error.message
       });
-      
+
       // Fallback to free plan limits
       return {
         plan: null,
@@ -165,8 +165,8 @@ class ProfileService {
       };
 
     } catch (error) {
-      if (error instanceof PlanLimitExceededError || 
-          error instanceof ProfileValidationError) {
+      if (error instanceof PlanLimitExceededError ||
+        error instanceof ProfileValidationError) {
         throw error;
       }
 
@@ -208,7 +208,7 @@ class ProfileService {
 
       // Filter updates to only include editable fields
       const editableUpdates = this._filterEditableFields(updates);
-      
+
       if (Object.keys(editableUpdates).length === 0) {
         throw new ProfileValidationError(
           'No editable fields provided for update',
@@ -237,8 +237,8 @@ class ProfileService {
       };
 
     } catch (error) {
-      if (error instanceof ProfileNotFoundError || 
-          error instanceof ProfileValidationError) {
+      if (error instanceof ProfileNotFoundError ||
+        error instanceof ProfileValidationError) {
         throw error;
       }
 
@@ -452,8 +452,8 @@ class ProfileService {
       };
 
     } catch (error) {
-      if (error instanceof ProfileNotFoundError || 
-          error instanceof PlanLimitExceededError) {
+      if (error instanceof ProfileNotFoundError ||
+        error instanceof PlanLimitExceededError) {
         throw error;
       }
 
@@ -511,6 +511,70 @@ class ProfileService {
       throw new ProfileOperationError(
         `Failed to search profiles: ${error.message}`,
         'searchUserProfiles',
+        userId
+      );
+    }
+  }
+
+  /**
+   * Create a guest profile for trial generation
+   * @param {string|ObjectId} userId - Guest user ID
+   * @param {string} nicheId - Niche identifier
+   * @returns {Promise<Object>} Created guest profile
+   */
+  async createGuestProfile(userId, nicheId) {
+    try {
+      logger.info('Creating guest profile', {
+        userId,
+        nicheId,
+        operation: 'createGuestProfile'
+      });
+
+      const randomString = (length) => {
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      };
+
+      // Extract niche name from nicheId (e.g., GUEST_USER_FASHION -> fashion)
+      const nicheName = nicheId.replace('GUEST_USER_', '').toLowerCase();
+
+      const guestProfile = new BusinessProfile({
+        userId,
+        name: `Guest Business ${randomString(4)}`,
+        tagline: `Trial ${nicheName} business`,
+        description: `Guest trial profile for ${nicheName} niche`,
+        niche: nicheName,
+        isActive: true
+      });
+
+      await guestProfile.save();
+
+      logger.info('Guest profile created successfully', {
+        userId,
+        profileId: guestProfile._id,
+        niche: nicheName
+      });
+
+      return {
+        success: true,
+        profile: guestProfile.toObject(),
+        message: 'Guest profile created successfully'
+      };
+
+    } catch (error) {
+      logger.error('Error creating guest profile', {
+        userId,
+        nicheId,
+        error: error.message,
+        stack: error.stack
+      });
+      throw new ProfileOperationError(
+        `Failed to create guest profile: ${error.message}`,
+        'createGuestProfile',
         userId
       );
     }
@@ -584,7 +648,7 @@ class ProfileService {
    */
   _filterEditableFields(updates) {
     const editableUpdates = {};
-    
+
     for (const field of this.EDITABLE_FIELDS) {
       if (updates[field] !== undefined) {
         editableUpdates[field] = updates[field];
@@ -619,6 +683,17 @@ class ProfileService {
       }
     }
 
+    // Validate description
+    if (updates.description !== undefined) {
+      if (typeof updates.description !== 'string' || updates.description.trim().length === 0) {
+        throw new ProfileValidationError(
+          'Description must be a non-empty string',
+          'description',
+          updates.description
+        );
+      }
+    }
+
     // Validate products array
     if (updates.products !== undefined) {
       if (!Array.isArray(updates.products)) {
@@ -628,7 +703,7 @@ class ProfileService {
           updates.products
         );
       }
-      
+
       for (const product of updates.products) {
         if (typeof product !== 'string' || product.trim().length === 0) {
           throw new ProfileValidationError(
@@ -665,7 +740,7 @@ class ProfileService {
             color
           );
         }
-        
+
         if (!/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color.hex)) {
           throw new ProfileValidationError(
             'Invalid hex color format',
@@ -702,6 +777,28 @@ class ProfileService {
         );
       }
     }
+
+    // Validate address
+    if (updates.address !== undefined) {
+      if (typeof updates.address !== 'object' || updates.address === null) {
+        throw new ProfileValidationError(
+          'Address must be an object',
+          'address',
+          updates.address
+        );
+      }
+
+      const requiredAddressFields = ['street', 'city', 'state', 'country', 'zipCode'];
+      for (const field of requiredAddressFields) {
+        if (updates.address[field] && typeof updates.address[field] !== 'string') {
+          throw new ProfileValidationError(
+            `Address ${field} must be a string`,
+            `address.${field}`,
+            updates.address[field]
+          );
+        }
+      }
+    }
   }
 
   /**
@@ -715,10 +812,14 @@ class ProfileService {
 
     // Required fields
     sanitized.name = profileData.name.trim();
-    sanitized.tagline = profileData.tagline.trim();
+    sanitized.niche = profileData.niche.trim();
     sanitized.description = profileData.description.trim();
 
     // Optional fields
+    if (profileData.tagline) {
+      sanitized.tagline = profileData.tagline.trim();
+    }
+
     if (profileData.logo) {
       sanitized.logo = profileData.logo.trim();
     }

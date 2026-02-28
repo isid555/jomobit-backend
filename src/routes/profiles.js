@@ -381,4 +381,37 @@ router.post('/:profileId/activate', authenticate, profileController.activateProf
  */
 router.get('/:profileId/generation-summary', authenticate, profileController.getProfileGenerationSummary);
 
+/**
+ * @swagger
+ * /api/profiles/imagekit/auth:
+ *   get:
+ *     summary: Get ImageKit authentication parameters
+ *     tags: [Profiles]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: ImageKit authentication parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 publicKey:
+ *                   type: string
+ *                 endpoint:
+ *                   type: string
+ *                 authToken:
+ *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
+router.get('/imagekit/auth', authenticate, profileController.getImageKitAuthParams);
+
 module.exports = router;

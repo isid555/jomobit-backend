@@ -1,6 +1,6 @@
-const mongoose = require('mongoose');
-const Template = require('../models/Template');
-const logger = require('../utils/logger');
+const mongoose = require("mongoose");
+const Template = require("../models/Template");
+const logger = require("../utils/logger");
 
 /**
  * Custom error classes for template operations
@@ -8,8 +8,8 @@ const logger = require('../utils/logger');
 class TemplateNotFoundError extends Error {
   constructor(identifier) {
     super(`Template not found: ${identifier}`);
-    this.name = 'TemplateNotFoundError';
-    this.code = 'TEMPLATE_NOT_FOUND';
+    this.name = "TemplateNotFoundError";
+    this.code = "TEMPLATE_NOT_FOUND";
     this.identifier = identifier;
   }
 }
@@ -17,8 +17,8 @@ class TemplateNotFoundError extends Error {
 class TemplateOperationError extends Error {
   constructor(message, operation, templateId = null) {
     super(message);
-    this.name = 'TemplateOperationError';
-    this.code = 'TEMPLATE_OPERATION_ERROR';
+    this.name = "TemplateOperationError";
+    this.code = "TEMPLATE_OPERATION_ERROR";
     this.operation = operation;
     this.templateId = templateId;
   }
@@ -27,8 +27,8 @@ class TemplateOperationError extends Error {
 class TemplateValidationError extends Error {
   constructor(message, field = null) {
     super(message);
-    this.name = 'TemplateValidationError';
-    this.code = 'TEMPLATE_VALIDATION_ERROR';
+    this.name = "TemplateValidationError";
+    this.code = "TEMPLATE_VALIDATION_ERROR";
     this.field = field;
   }
 }
@@ -42,6 +42,60 @@ class TemplateService {
     // Default pagination settings
     this.DEFAULT_PAGE_SIZE = 20;
     this.MAX_PAGE_SIZE = 100;
+
+    // Bind methods
+    this.getTagsTypeahead = this.getTagsTypeahead.bind(this);
+  }
+
+  /**
+   * Get tags typeahead suggestions
+   * @param {string} query - Search query for tags
+   * @param {number} limit - Maximum number of results (default: 8, max: 20)
+   * @returns {Promise<Object>} Matching tags with counts
+   */
+  async getTagsTypeahead(query, limit = 8) {
+    try {
+      if (!query || typeof query !== 'string' || query.trim().length === 0) {
+        throw new TemplateValidationError('Query is required and must be a non-empty string');
+      }
+
+      const trimmedQuery = query.trim();
+      const validatedLimit = Math.min(20, Math.max(1, parseInt(limit)));
+
+      logger.info('Getting tags typeahead', {
+        query: trimmedQuery,
+        limit: validatedLimit,
+        operation: 'getTagsTypeahead',
+      });
+
+      const tags = await Template.getTagsTypeahead(trimmedQuery, validatedLimit);
+
+      logger.info('Tags typeahead retrieved successfully', {
+        query: trimmedQuery,
+        resultsCount: tags.length,
+      });
+
+      return {
+        success: true,
+        tags,
+        query: trimmedQuery,
+        total: tags.length,
+      };
+    } catch (error) {
+      if (error instanceof TemplateValidationError) {
+        throw error;
+      }
+
+      logger.error('Error getting tags typeahead', {
+        query,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw new TemplateOperationError(
+        `Failed to get tags typeahead: ${error.message}`,
+        'getTagsTypeahead'
+      );
+    }
   }
 
   /**
@@ -50,64 +104,91 @@ class TemplateService {
    * @param {Object} options - Query options
    * @returns {Promise<Object>} Paginated template results
    */
+
   async getTemplates(filters = {}, options = {}) {
     try {
       const {
         category = null,
         type = null,
         tags = [],
+        colors = [],
         difficulty = null,
         aspectRatio = null,
         isFeatured = null,
         search = null,
-        status = 'active'
+        status = "active",
       } = filters;
 
       const {
         page = 1,
         limit = this.DEFAULT_PAGE_SIZE,
-        sort = { 'metrics.usageCount': -1, createdAt: -1 }
+        sort = { "metrics.usageCount": -1, createdAt: -1 },
+        random = false,
       } = options;
 
       // Validate pagination parameters
       const validatedPage = Math.max(1, parseInt(page));
-      const validatedLimit = Math.min(this.MAX_PAGE_SIZE, Math.max(1, parseInt(limit)));
+      const validatedLimit = Math.min(
+        this.MAX_PAGE_SIZE,
+        Math.max(1, parseInt(limit))
+      );
 
-      logger.info('Getting templates with filters', {
+      logger.info("Getting templates with filters", {
         filters,
         page: validatedPage,
         limit: validatedLimit,
-        operation: 'getTemplates'
+        operation: "getTemplates",
       });
 
       const result = await Template.getTemplatesWithFilters(
-        { category, type, tags, difficulty, aspectRatio, isFeatured, search, status },
-        { page: validatedPage, limit: validatedLimit, sort }
+        {
+          category,
+          type,
+          tags,
+          colors,
+          difficulty,
+          aspectRatio,
+          isFeatured,
+          search,
+          status,
+        },
+        { page: validatedPage, limit: validatedLimit, sort, random }
       );
 
-      logger.info('Templates retrieved successfully', {
+      logger.info("Templates retrieved successfully", {
         count: result.templates.length,
         total: result.pagination.total,
-        page: validatedPage
+        page: validatedPage,
       });
+
+      const templates = random
+        ? result.templates
+        : result.templates.map((template) => template.getSummary());
 
       return {
         success: true,
-        templates: result.templates.map(template => template.getSummary()),
+        templates: templates,
         pagination: result.pagination,
-        filters: { category, type, tags, difficulty, aspectRatio, isFeatured, search }
+        filters: {
+          category,
+          type,
+          tags,
+          difficulty,
+          aspectRatio,
+          isFeatured,
+          search,
+        },
       };
-
     } catch (error) {
-      logger.error('Error getting templates', {
+      logger.error("Error getting templates", {
         filters,
         options,
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw new TemplateOperationError(
         `Failed to get templates: ${error.message}`,
-        'getTemplates'
+        "getTemplates"
       );
     }
   }
@@ -121,16 +202,22 @@ class TemplateService {
    */
   async searchTemplates(searchTerm, filters = {}, options = {}) {
     try {
-      if (!searchTerm || typeof searchTerm !== 'string' || searchTerm.trim().length === 0) {
-        throw new TemplateValidationError('Search term is required and must be a non-empty string');
+      if (
+        !searchTerm ||
+        typeof searchTerm !== "string" ||
+        searchTerm.trim().length === 0
+      ) {
+        throw new TemplateValidationError(
+          "Search term is required and must be a non-empty string"
+        );
       }
 
       const trimmedSearchTerm = searchTerm.trim();
-      
-      logger.info('Searching templates', {
+
+      logger.info("Searching templates", {
         searchTerm: trimmedSearchTerm,
         filters,
-        operation: 'searchTemplates'
+        operation: "searchTemplates",
       });
 
       const result = await this.getTemplates(
@@ -138,29 +225,28 @@ class TemplateService {
         options
       );
 
-      logger.info('Template search completed', {
+      logger.info("Template search completed", {
         searchTerm: trimmedSearchTerm,
-        resultsCount: result.templates.length
+        resultsCount: result.templates.length,
       });
 
       return {
         ...result,
-        searchTerm: trimmedSearchTerm
+        searchTerm: trimmedSearchTerm,
       };
-
     } catch (error) {
       if (error instanceof TemplateValidationError) {
         throw error;
       }
 
-      logger.error('Error searching templates', {
+      logger.error("Error searching templates", {
         searchTerm,
         filters,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to search templates: ${error.message}`,
-        'searchTemplates'
+        "searchTemplates"
       );
     }
   }
@@ -171,31 +257,30 @@ class TemplateService {
    */
   async getFilterOptions() {
     try {
-      logger.info('Getting template filter options', {
-        operation: 'getFilterOptions'
+      logger.info("Getting template filter options", {
+        operation: "getFilterOptions",
       });
 
       const filterOptions = await Template.getFilterOptions();
 
-      logger.info('Filter options retrieved successfully', {
+      logger.info("Filter options retrieved successfully", {
         categoriesCount: filterOptions.categories.length,
         typesCount: filterOptions.types.length,
-        tagsCount: filterOptions.tags.length
+        tagsCount: filterOptions.tags.length,
       });
 
       return {
         success: true,
-        filters: filterOptions
+        filters: filterOptions,
       };
-
     } catch (error) {
-      logger.error('Error getting filter options', {
+      logger.error("Error getting filter options", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
       throw new TemplateOperationError(
         `Failed to get filter options: ${error.message}`,
-        'getFilterOptions'
+        "getFilterOptions"
       );
     }
   }
@@ -208,16 +293,16 @@ class TemplateService {
   async getTemplateById(templateId) {
     try {
       if (!templateId) {
-        throw new TemplateValidationError('Template ID is required');
+        throw new TemplateValidationError("Template ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(templateId)) {
-        throw new TemplateValidationError('Invalid template ID format');
+        throw new TemplateValidationError("Invalid template ID format");
       }
 
-      logger.info('Getting template by ID', {
+      logger.info("Getting template by ID", {
         templateId,
-        operation: 'getTemplateById'
+        operation: "getTemplateById",
       });
 
       const template = await Template.getTemplateById(templateId);
@@ -225,28 +310,30 @@ class TemplateService {
         throw new TemplateNotFoundError(templateId);
       }
 
-      logger.info('Template retrieved successfully', {
+      logger.info("Template retrieved successfully", {
         templateId,
-        templateName: template.name
+        templateName: template.name,
       });
 
       return {
         success: true,
-        template: template.toObject()
+        template: template.toObject(),
       };
-
     } catch (error) {
-      if (error instanceof TemplateNotFoundError || error instanceof TemplateValidationError) {
+      if (
+        error instanceof TemplateNotFoundError ||
+        error instanceof TemplateValidationError
+      ) {
         throw error;
       }
 
-      logger.error('Error getting template by ID', {
+      logger.error("Error getting template by ID", {
         templateId,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to get template: ${error.message}`,
-        'getTemplateById',
+        "getTemplateById",
         templateId
       );
     }
@@ -261,30 +348,29 @@ class TemplateService {
     try {
       const validatedLimit = Math.min(50, Math.max(1, parseInt(limit)));
 
-      logger.info('Getting featured templates', {
+      logger.info("Getting featured templates", {
         limit: validatedLimit,
-        operation: 'getFeaturedTemplates'
+        operation: "getFeaturedTemplates",
       });
 
       const templates = await Template.getFeaturedTemplates(validatedLimit);
 
-      logger.info('Featured templates retrieved', {
-        count: templates.length
+      logger.info("Featured templates retrieved", {
+        count: templates.length,
       });
 
       return {
         success: true,
-        templates: templates.map(template => template.getSummary())
+        templates: templates.map((template) => template.getSummary()),
       };
-
     } catch (error) {
-      logger.error('Error getting featured templates', {
+      logger.error("Error getting featured templates", {
         limit,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to get featured templates: ${error.message}`,
-        'getFeaturedTemplates'
+        "getFeaturedTemplates"
       );
     }
   }
@@ -298,30 +384,29 @@ class TemplateService {
     try {
       const validatedLimit = Math.min(50, Math.max(1, parseInt(limit)));
 
-      logger.info('Getting popular templates', {
+      logger.info("Getting popular templates", {
         limit: validatedLimit,
-        operation: 'getPopularTemplates'
+        operation: "getPopularTemplates",
       });
 
       const templates = await Template.getPopularTemplates(validatedLimit);
 
-      logger.info('Popular templates retrieved', {
-        count: templates.length
+      logger.info("Popular templates retrieved", {
+        count: templates.length,
       });
 
       return {
         success: true,
-        templates: templates.map(template => template.getSummary())
+        templates: templates.map((template) => template.getSummary()),
       };
-
     } catch (error) {
-      logger.error('Error getting popular templates', {
+      logger.error("Error getting popular templates", {
         limit,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to get popular templates: ${error.message}`,
-        'getPopularTemplates'
+        "getPopularTemplates"
       );
     }
   }
@@ -335,30 +420,81 @@ class TemplateService {
     try {
       const validatedLimit = Math.min(50, Math.max(1, parseInt(limit)));
 
-      logger.info('Getting recent templates', {
+      logger.info("Getting recent templates", {
         limit: validatedLimit,
-        operation: 'getRecentTemplates'
+        operation: "getRecentTemplates",
       });
 
       const templates = await Template.getRecentTemplates(validatedLimit);
 
-      logger.info('Recent templates retrieved', {
-        count: templates.length
+      logger.info("Recent templates retrieved", {
+        count: templates.length,
       });
 
       return {
         success: true,
-        templates: templates.map(template => template.getSummary())
+        templates: templates.map((template) => template.getSummary()),
       };
-
     } catch (error) {
-      logger.error('Error getting recent templates', {
+      logger.error("Error getting recent templates", {
         limit,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to get recent templates: ${error.message}`,
-        'getRecentTemplates'
+        "getRecentTemplates"
+      );
+    }
+  }
+
+  /**
+   * Get featured templates for trial/guest users
+   * Returns recently added featured templates without authentication
+   * @param {number} limit - Number of templates to return (default: 15, max: 50)
+   * @returns {Promise<Object>} Trial templates
+   */
+  async getTrialTemplates(limit = 15) {
+    try {
+      // Validate and constrain limit
+      const validatedLimit = Math.min(50, Math.max(1, parseInt(limit)));
+
+      logger.info("Getting trial templates", {
+        limit: validatedLimit,
+        operation: "getTrialTemplates",
+      });
+
+      // Fetch featured, active, public templates sorted by creation date (most recent first)
+      const templates = await Template.find({
+        isFeatured: true,
+        status: "active",
+        isPublic: true,
+      })
+        .select("-__v -createdBy") // Exclude sensitive fields
+        .sort({ createdAt: -1 }) // Most recent first
+        .limit(validatedLimit)
+        .lean() // Return plain JavaScript objects for better performance
+        .exec();
+
+      logger.info("Trial templates retrieved successfully", {
+        count: templates.length,
+        requestedLimit: limit,
+        actualLimit: validatedLimit,
+      });
+
+      return {
+        success: true,
+        templates,
+        count: templates.length,
+      };
+    } catch (error) {
+      logger.error("Error getting trial templates", {
+        limit,
+        error: error.message,
+        stack: error.stack,
+      });
+      throw new TemplateOperationError(
+        `Failed to get trial templates: ${error.message}`,
+        "getTrialTemplates"
       );
     }
   }
@@ -371,16 +507,16 @@ class TemplateService {
   async incrementUsage(templateId) {
     try {
       if (!templateId) {
-        throw new TemplateValidationError('Template ID is required');
+        throw new TemplateValidationError("Template ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(templateId)) {
-        throw new TemplateValidationError('Invalid template ID format');
+        throw new TemplateValidationError("Invalid template ID format");
       }
 
-      logger.info('Incrementing template usage', {
+      logger.info("Incrementing template usage", {
         templateId,
-        operation: 'incrementUsage'
+        operation: "incrementUsage",
       });
 
       const template = await Template.findById(templateId);
@@ -390,29 +526,31 @@ class TemplateService {
 
       await template.incrementUsage();
 
-      logger.info('Template usage incremented', {
+      logger.info("Template usage incremented", {
         templateId,
-        newUsageCount: template.metrics.usageCount
+        newUsageCount: template.metrics.usageCount,
       });
 
       return {
         success: true,
         template: template.getSummary(),
-        message: 'Template usage incremented successfully'
+        message: "Template usage incremented successfully",
       };
-
     } catch (error) {
-      if (error instanceof TemplateNotFoundError || error instanceof TemplateValidationError) {
+      if (
+        error instanceof TemplateNotFoundError ||
+        error instanceof TemplateValidationError
+      ) {
         throw error;
       }
 
-      logger.error('Error incrementing template usage', {
+      logger.error("Error incrementing template usage", {
         templateId,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to increment template usage: ${error.message}`,
-        'incrementUsage',
+        "incrementUsage",
         templateId
       );
     }
@@ -431,57 +569,63 @@ class TemplateService {
       this._validateTemplateData(templateData);
 
       if (!createdBy) {
-        throw new TemplateValidationError('Creator ID is required');
+        throw new TemplateValidationError("Creator ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(createdBy)) {
-        throw new TemplateValidationError('Invalid creator ID format');
+        throw new TemplateValidationError("Invalid creator ID format");
       }
 
-      logger.info('Creating new template', {
+      logger.info("Creating new template", {
         templateName: templateData.name,
         createdBy,
-        operation: 'createTemplate'
+        operation: "createTemplate",
       });
 
       const template = new Template({
         ...templateData,
         createdBy,
-        status: templateData.status || 'active'
+        status: templateData.status || "active",
       });
 
       await template.save();
 
-      logger.info('Template created successfully', {
+      logger.info("Template created successfully", {
         templateId: template._id,
         templateName: template.name,
-        createdBy
+        createdBy,
       });
 
       return {
         success: true,
         template: template.toObject(),
-        message: 'Template created successfully'
+        message: "Template created successfully",
       };
-
     } catch (error) {
       if (error instanceof TemplateValidationError) {
         throw error;
       }
 
-      if (error.name === 'ValidationError') {
-        const validationErrors = Object.values(error.errors).map(err => err.message);
-        throw new TemplateValidationError(`Validation failed: ${validationErrors.join(', ')}`);
+      if (error.name === "ValidationError") {
+        const validationErrors = Object.values(error.errors).map(
+          (err) => err.message
+        );
+        throw new TemplateValidationError(
+          `Validation failed: ${validationErrors.join(", ")}`
+        );
       }
 
-      logger.error('Error creating template', {
-        templateData: { name: templateData?.name, category: templateData?.category },
+      logger.error("Error creating template", {
+        templateData: {
+          name: templateData?.name,
+          category: templateData?.category,
+        },
         createdBy,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to create template: ${error.message}`,
-        'createTemplate'
+        "createTemplate"
       );
     }
   }
@@ -495,21 +639,21 @@ class TemplateService {
   async updateTemplate(templateId, updateData) {
     try {
       if (!templateId) {
-        throw new TemplateValidationError('Template ID is required');
+        throw new TemplateValidationError("Template ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(templateId)) {
-        throw new TemplateValidationError('Invalid template ID format');
+        throw new TemplateValidationError("Invalid template ID format");
       }
 
       if (!updateData || Object.keys(updateData).length === 0) {
-        throw new TemplateValidationError('Update data is required');
+        throw new TemplateValidationError("Update data is required");
       }
 
-      logger.info('Updating template', {
+      logger.info("Updating template", {
         templateId,
         updateFields: Object.keys(updateData),
-        operation: 'updateTemplate'
+        operation: "updateTemplate",
       });
 
       const template = await Template.findById(templateId);
@@ -518,7 +662,7 @@ class TemplateService {
       }
 
       // Apply updates
-      Object.keys(updateData).forEach(key => {
+      Object.keys(updateData).forEach((key) => {
         if (updateData[key] !== undefined) {
           template[key] = updateData[key];
         }
@@ -526,34 +670,40 @@ class TemplateService {
 
       await template.save();
 
-      logger.info('Template updated successfully', {
+      logger.info("Template updated successfully", {
         templateId,
-        templateName: template.name
+        templateName: template.name,
       });
 
       return {
         success: true,
         template: template.toObject(),
-        message: 'Template updated successfully'
+        message: "Template updated successfully",
       };
-
     } catch (error) {
-      if (error instanceof TemplateNotFoundError || error instanceof TemplateValidationError) {
+      if (
+        error instanceof TemplateNotFoundError ||
+        error instanceof TemplateValidationError
+      ) {
         throw error;
       }
 
-      if (error.name === 'ValidationError') {
-        const validationErrors = Object.values(error.errors).map(err => err.message);
-        throw new TemplateValidationError(`Validation failed: ${validationErrors.join(', ')}`);
+      if (error.name === "ValidationError") {
+        const validationErrors = Object.values(error.errors).map(
+          (err) => err.message
+        );
+        throw new TemplateValidationError(
+          `Validation failed: ${validationErrors.join(", ")}`
+        );
       }
 
-      logger.error('Error updating template', {
+      logger.error("Error updating template", {
         templateId,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to update template: ${error.message}`,
-        'updateTemplate',
+        "updateTemplate",
         templateId
       );
     }
@@ -567,16 +717,16 @@ class TemplateService {
   async deleteTemplate(templateId) {
     try {
       if (!templateId) {
-        throw new TemplateValidationError('Template ID is required');
+        throw new TemplateValidationError("Template ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(templateId)) {
-        throw new TemplateValidationError('Invalid template ID format');
+        throw new TemplateValidationError("Invalid template ID format");
       }
 
-      logger.info('Deleting template', {
+      logger.info("Deleting template", {
         templateId,
-        operation: 'deleteTemplate'
+        operation: "deleteTemplate",
       });
 
       const template = await Template.findById(templateId);
@@ -586,28 +736,30 @@ class TemplateService {
 
       await Template.findByIdAndDelete(templateId);
 
-      logger.info('Template deleted successfully', {
+      logger.info("Template deleted successfully", {
         templateId,
-        templateName: template.name
+        templateName: template.name,
       });
 
       return {
         success: true,
-        message: 'Template deleted successfully'
+        message: "Template deleted successfully",
       };
-
     } catch (error) {
-      if (error instanceof TemplateNotFoundError || error instanceof TemplateValidationError) {
+      if (
+        error instanceof TemplateNotFoundError ||
+        error instanceof TemplateValidationError
+      ) {
         throw error;
       }
 
-      logger.error('Error deleting template', {
+      logger.error("Error deleting template", {
         templateId,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to delete template: ${error.message}`,
-        'deleteTemplate',
+        "deleteTemplate",
         templateId
       );
     }
@@ -621,16 +773,16 @@ class TemplateService {
   async toggleFeatured(templateId) {
     try {
       if (!templateId) {
-        throw new TemplateValidationError('Template ID is required');
+        throw new TemplateValidationError("Template ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(templateId)) {
-        throw new TemplateValidationError('Invalid template ID format');
+        throw new TemplateValidationError("Invalid template ID format");
       }
 
-      logger.info('Toggling template featured status', {
+      logger.info("Toggling template featured status", {
         templateId,
-        operation: 'toggleFeatured'
+        operation: "toggleFeatured",
       });
 
       const template = await Template.findById(templateId);
@@ -641,10 +793,10 @@ class TemplateService {
       const oldFeaturedStatus = template.isFeatured;
       await template.toggleFeatured();
 
-      logger.info('Template featured status toggled', {
+      logger.info("Template featured status toggled", {
         templateId,
         oldStatus: oldFeaturedStatus,
-        newStatus: template.isFeatured
+        newStatus: template.isFeatured,
       });
 
       return {
@@ -652,21 +804,24 @@ class TemplateService {
         template: template.getSummary(),
         oldFeaturedStatus,
         newFeaturedStatus: template.isFeatured,
-        message: `Template ${template.isFeatured ? 'featured' : 'unfeatured'} successfully`
+        message: `Template ${template.isFeatured ? "featured" : "unfeatured"
+          } successfully`,
       };
-
     } catch (error) {
-      if (error instanceof TemplateNotFoundError || error instanceof TemplateValidationError) {
+      if (
+        error instanceof TemplateNotFoundError ||
+        error instanceof TemplateValidationError
+      ) {
         throw error;
       }
 
-      logger.error('Error toggling template featured status', {
+      logger.error("Error toggling template featured status", {
         templateId,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to toggle featured status: ${error.message}`,
-        'toggleFeatured',
+        "toggleFeatured",
         templateId
       );
     }
@@ -680,16 +835,16 @@ class TemplateService {
   async archiveTemplate(templateId) {
     try {
       if (!templateId) {
-        throw new TemplateValidationError('Template ID is required');
+        throw new TemplateValidationError("Template ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(templateId)) {
-        throw new TemplateValidationError('Invalid template ID format');
+        throw new TemplateValidationError("Invalid template ID format");
       }
 
-      logger.info('Archiving template', {
+      logger.info("Archiving template", {
         templateId,
-        operation: 'archiveTemplate'
+        operation: "archiveTemplate",
       });
 
       const template = await Template.findById(templateId);
@@ -700,10 +855,10 @@ class TemplateService {
       const oldStatus = template.status;
       await template.archive();
 
-      logger.info('Template archived successfully', {
+      logger.info("Template archived successfully", {
         templateId,
         oldStatus,
-        newStatus: template.status
+        newStatus: template.status,
       });
 
       return {
@@ -711,21 +866,23 @@ class TemplateService {
         template: template.toObject(),
         oldStatus,
         newStatus: template.status,
-        message: 'Template archived successfully'
+        message: "Template archived successfully",
       };
-
     } catch (error) {
-      if (error instanceof TemplateNotFoundError || error instanceof TemplateValidationError) {
+      if (
+        error instanceof TemplateNotFoundError ||
+        error instanceof TemplateValidationError
+      ) {
         throw error;
       }
 
-      logger.error('Error archiving template', {
+      logger.error("Error archiving template", {
         templateId,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to archive template: ${error.message}`,
-        'archiveTemplate',
+        "archiveTemplate",
         templateId
       );
     }
@@ -739,16 +896,16 @@ class TemplateService {
   async activateTemplate(templateId) {
     try {
       if (!templateId) {
-        throw new TemplateValidationError('Template ID is required');
+        throw new TemplateValidationError("Template ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(templateId)) {
-        throw new TemplateValidationError('Invalid template ID format');
+        throw new TemplateValidationError("Invalid template ID format");
       }
 
-      logger.info('Activating template', {
+      logger.info("Activating template", {
         templateId,
-        operation: 'activateTemplate'
+        operation: "activateTemplate",
       });
 
       const template = await Template.findById(templateId);
@@ -759,10 +916,10 @@ class TemplateService {
       const oldStatus = template.status;
       await template.activate();
 
-      logger.info('Template activated successfully', {
+      logger.info("Template activated successfully", {
         templateId,
         oldStatus,
-        newStatus: template.status
+        newStatus: template.status,
       });
 
       return {
@@ -770,21 +927,23 @@ class TemplateService {
         template: template.toObject(),
         oldStatus,
         newStatus: template.status,
-        message: 'Template activated successfully'
+        message: "Template activated successfully",
       };
-
     } catch (error) {
-      if (error instanceof TemplateNotFoundError || error instanceof TemplateValidationError) {
+      if (
+        error instanceof TemplateNotFoundError ||
+        error instanceof TemplateValidationError
+      ) {
         throw error;
       }
 
-      logger.error('Error activating template', {
+      logger.error("Error activating template", {
         templateId,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to activate template: ${error.message}`,
-        'activateTemplate',
+        "activateTemplate",
         templateId
       );
     }
@@ -799,34 +958,36 @@ class TemplateService {
   async batchUploadTemplates(templatesData, createdBy) {
     try {
       if (!Array.isArray(templatesData) || templatesData.length === 0) {
-        throw new TemplateValidationError('Templates data must be a non-empty array');
+        throw new TemplateValidationError(
+          "Templates data must be a non-empty array"
+        );
       }
 
       if (!createdBy) {
-        throw new TemplateValidationError('Creator ID is required');
+        throw new TemplateValidationError("Creator ID is required");
       }
 
       if (!mongoose.Types.ObjectId.isValid(createdBy)) {
-        throw new TemplateValidationError('Invalid creator ID format');
+        throw new TemplateValidationError("Invalid creator ID format");
       }
 
-      logger.info('Starting batch template upload', {
+      logger.info("Starting batch template upload", {
         templateCount: templatesData.length,
         createdBy,
-        operation: 'batchUploadTemplates'
+        operation: "batchUploadTemplates",
       });
 
       const results = {
         successful: [],
         failed: [],
-        total: templatesData.length
+        total: templatesData.length,
       };
 
       // Process templates in batches to avoid overwhelming the database
       const batchSize = 10;
       for (let i = 0; i < templatesData.length; i += batchSize) {
         const batch = templatesData.slice(i, i + batchSize);
-        
+
         await Promise.allSettled(
           batch.map(async (templateData, index) => {
             try {
@@ -834,44 +995,43 @@ class TemplateService {
               results.successful.push({
                 index: i + index,
                 template: result.template,
-                name: templateData.name
+                name: templateData.name,
               });
             } catch (error) {
               results.failed.push({
                 index: i + index,
-                name: templateData.name || 'Unknown',
-                error: error.message
+                name: templateData.name || "Unknown",
+                error: error.message,
               });
             }
           })
         );
       }
 
-      logger.info('Batch template upload completed', {
+      logger.info("Batch template upload completed", {
         total: results.total,
         successful: results.successful.length,
-        failed: results.failed.length
+        failed: results.failed.length,
       });
 
       return {
         success: true,
         results,
-        message: `Batch upload completed: ${results.successful.length} successful, ${results.failed.length} failed`
+        message: `Batch upload completed: ${results.successful.length} successful, ${results.failed.length} failed`,
       };
-
     } catch (error) {
       if (error instanceof TemplateValidationError) {
         throw error;
       }
 
-      logger.error('Error in batch template upload', {
+      logger.error("Error in batch template upload", {
         templateCount: templatesData?.length,
         createdBy,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to batch upload templates: ${error.message}`,
-        'batchUploadTemplates'
+        "batchUploadTemplates"
       );
     }
   }
@@ -882,29 +1042,28 @@ class TemplateService {
    */
   async getTemplateStats() {
     try {
-      logger.info('Getting template statistics', {
-        operation: 'getTemplateStats'
+      logger.info("Getting template statistics", {
+        operation: "getTemplateStats",
       });
 
       const stats = await Template.getTemplateStats();
 
-      logger.info('Template statistics retrieved', {
+      logger.info("Template statistics retrieved", {
         totalTemplates: stats.total,
-        activeTemplates: stats.active
+        activeTemplates: stats.active,
       });
 
       return {
         success: true,
-        stats
+        stats,
       };
-
     } catch (error) {
-      logger.error('Error getting template statistics', {
-        error: error.message
+      logger.error("Error getting template statistics", {
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to get template statistics: ${error.message}`,
-        'getTemplateStats'
+        "getTemplateStats"
       );
     }
   }
@@ -917,9 +1076,9 @@ class TemplateService {
    */
   async getAdminTemplates(filters = {}, options = {}) {
     try {
-      logger.info('Getting admin templates', {
+      logger.info("Getting admin templates", {
         filters,
-        operation: 'getAdminTemplates'
+        operation: "getAdminTemplates",
       });
 
       // Remove status filter restriction for admin
@@ -930,27 +1089,28 @@ class TemplateService {
 
       // Get full template data for admin
       const adminTemplates = await Template.find({})
-        .populate('createdBy', 'email metadata.name')
+        .populate("createdBy", "email metadata.name")
         .sort(options.sort || { createdAt: -1 })
         .limit(options.limit || this.DEFAULT_PAGE_SIZE)
-        .skip(((options.page || 1) - 1) * (options.limit || this.DEFAULT_PAGE_SIZE));
+        .skip(
+          ((options.page || 1) - 1) * (options.limit || this.DEFAULT_PAGE_SIZE)
+        );
 
       return {
         ...result,
-        templates: adminTemplates.map(template => ({
+        templates: adminTemplates.map((template) => ({
           ...template.toObject(),
-          creator: template.createdBy
-        }))
+          creator: template.createdBy,
+        })),
       };
-
     } catch (error) {
-      logger.error('Error getting admin templates', {
+      logger.error("Error getting admin templates", {
         filters,
-        error: error.message
+        error: error.message,
       });
       throw new TemplateOperationError(
         `Failed to get admin templates: ${error.message}`,
-        'getAdminTemplates'
+        "getAdminTemplates"
       );
     }
   }
@@ -962,10 +1122,16 @@ class TemplateService {
    */
   _validateTemplateData(templateData) {
     if (!templateData) {
-      throw new TemplateValidationError('Template data is required');
+      throw new TemplateValidationError("Template data is required");
     }
 
-    const requiredFields = ['name', 'category', 'type', 'images', 'aspectRatio'];
+    const requiredFields = [
+      "name",
+      "category",
+      "type",
+      "images",
+      "aspectRatio",
+    ];
     for (const field of requiredFields) {
       if (!templateData[field]) {
         throw new TemplateValidationError(`${field} is required`, field);
@@ -973,29 +1139,51 @@ class TemplateService {
     }
 
     // Validate images object
-    if (!templateData.images.thumbnail || !templateData.images.preview || !templateData.images.fullSize) {
-      throw new TemplateValidationError('All image URLs (thumbnail, preview, fullSize) are required', 'images');
+    if (
+      !templateData.images.thumbnail ||
+      !templateData.images.preview ||
+      !templateData.images.fullSize
+    ) {
+      throw new TemplateValidationError(
+        "All image URLs (thumbnail, preview, fullSize) are required",
+        "images"
+      );
     }
 
     // Validate aspect ratio
     if (!templateData.aspectRatio.width || !templateData.aspectRatio.height) {
-      throw new TemplateValidationError('Aspect ratio width and height are required', 'aspectRatio');
+      throw new TemplateValidationError(
+        "Aspect ratio width and height are required",
+        "aspectRatio"
+      );
     }
 
     // Validate enums
-    const validTypes = ['social', 'print', 'web', 'story', 'post', 'banner'];
+    const validTypes = ["social", "print", "web", "story", "post", "banner"];
     if (!validTypes.includes(templateData.type)) {
-      throw new TemplateValidationError(`Type must be one of: ${validTypes.join(', ')}`, 'type');
+      throw new TemplateValidationError(
+        `Type must be one of: ${validTypes.join(", ")}`,
+        "type"
+      );
     }
 
-    const validDifficulties = ['beginner', 'intermediate', 'advanced'];
-    if (templateData.difficulty && !validDifficulties.includes(templateData.difficulty)) {
-      throw new TemplateValidationError(`Difficulty must be one of: ${validDifficulties.join(', ')}`, 'difficulty');
+    const validDifficulties = ["beginner", "intermediate", "advanced"];
+    if (
+      templateData.difficulty &&
+      !validDifficulties.includes(templateData.difficulty)
+    ) {
+      throw new TemplateValidationError(
+        `Difficulty must be one of: ${validDifficulties.join(", ")}`,
+        "difficulty"
+      );
     }
 
-    const validStatuses = ['draft', 'active', 'inactive', 'archived'];
+    const validStatuses = ["draft", "active", "inactive", "archived"];
     if (templateData.status && !validStatuses.includes(templateData.status)) {
-      throw new TemplateValidationError(`Status must be one of: ${validStatuses.join(', ')}`, 'status');
+      throw new TemplateValidationError(
+        `Status must be one of: ${validStatuses.join(", ")}`,
+        "status"
+      );
     }
   }
 }
